@@ -329,7 +329,15 @@ Status BetaRowset::get_segment_iterators(const vectorized::Schema& schema, const
 StatusOr<std::vector<vectorized::ChunkIteratorPtr>> BetaRowset::get_segment_iterators2(const vectorized::Schema& schema,
                                                                                        KVStore* meta, int64_t version,
                                                                                        OlapReaderStatistics* stats) {
-    RETURN_IF_ERROR(load());
+    {
+        MonotonicStopWatch sw;
+        sw.start();
+        RETURN_IF_ERROR(load());
+        sw.stop();
+        if (stats) {
+            stats->load_rowset_timer += sw.elapsed_time();
+        }
+    }
 
     vectorized::SegmentReadOptions seg_options;
     seg_options.block_mgr = fs::fs_util::block_manager();

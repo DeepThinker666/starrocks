@@ -454,6 +454,12 @@ struct OlapReaderStatistics {
     int64_t rowsets_read_count = 0;
     int64_t segments_read_count = 0;
     int64_t load_index_time = 0;
+
+    int64_t open_block_time = 0;
+    int64_t check_low_card_time = 0;
+    int64_t init_column_iterator_time = 0;
+    int64_t rewrite_predicate_time = 0;
+    int64_t init_context_time = 0;
 };
 
 typedef uint32_t ColumnId;
