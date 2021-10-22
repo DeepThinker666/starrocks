@@ -480,8 +480,9 @@ Status ColumnReader::new_iterator(ColumnIterator** iterator) {
     }
 }
 
-Status ColumnReader::ensure_index_loaded(ReaderType reader_type) {
-    Status status = _load_ordinal_index_once.call([this] {
+Status ColumnReader::ensure_index_loaded(OlapReaderStatistics* stats, ReaderType reader_type) {
+    Status status = _load_ordinal_index_once.call([this, stats] {
+        SCOPED_RAW_TIMER(&stats->load_ordinal_index_time);
         bool use_page_cache = !config::disable_storage_page_cache;
         RETURN_IF_ERROR(_load_ordinal_index(use_page_cache, _opts.kept_in_memory));
         return Status::OK();
@@ -489,10 +490,14 @@ Status ColumnReader::ensure_index_loaded(ReaderType reader_type) {
     RETURN_IF_ERROR(status);
 
     if (is_query(reader_type)) {
-        status = _load_indices_once.call([this] {
+        status = _load_indices_once.call([this, stats] {
             // ZoneMap, Bitmap, BloomFilter is only necessary for query.
             bool use_page_cache = !config::disable_storage_page_cache;
-            RETURN_IF_ERROR(_load_zone_map_index(use_page_cache, _opts.kept_in_memory));
+            {
+                SCOPED_RAW_TIMER(&stats->load_zonemap_index_time);
+                RETURN_IF_ERROR(_load_zone_map_index(use_page_cache, _opts.kept_in_memory));
+            }
+            
             RETURN_IF_ERROR(_load_bitmap_index(use_page_cache, _opts.kept_in_memory));
             RETURN_IF_ERROR(_load_bloom_filter_index(use_page_cache, _opts.kept_in_memory));
             return Status::OK();
@@ -669,7 +674,7 @@ Status FileColumnIterator::init(const ColumnIteratorOptions& opts) {
     _opts = opts;
     {
         SCOPED_RAW_TIMER(&_opts.stats->load_index_time);
-        RETURN_IF_ERROR(_reader->ensure_index_loaded(_opts.reader_type));
+        RETURN_IF_ERROR(_reader->ensure_index_loaded(_opts.stats, opts.reader_type));
     }
 
     if (_reader->encoding_info()->encoding() != DICT_ENCODING) {

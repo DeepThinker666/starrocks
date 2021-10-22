@@ -460,6 +460,8 @@ struct OlapReaderStatistics {
     int64_t init_column_iterator_time = 0;
     int64_t rewrite_predicate_time = 0;
     int64_t init_context_time = 0;
+    int64_t load_ordinal_index_time = 0;
+    int64_t load_zonemap_index_time = 0;
 };
 
 typedef uint32_t ColumnId;

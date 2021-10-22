@@ -7,14 +7,15 @@
 #include "storage/tablet_schema.h"
 #include "storage/vectorized/column_predicate.h"
 #include "storage/vectorized/type_utils.h"
+#include "common/config.h"
 
 namespace starrocks::vectorized {
 
 bool PredicateParser::can_pushdown(const ColumnPredicate* predicate) const {
     RETURN_IF(predicate->column_id() >= _schema.num_columns(), false);
     const TabletColumn& column = _schema.column(predicate->column_id());
-    return _schema.keys_type() == KeysType::PRIMARY_KEYS ||
-           column.aggregation() == FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE;
+    return config::enable_predicate_pushdown && (_schema.keys_type() == KeysType::PRIMARY_KEYS ||
+           column.aggregation() == FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE);
 }
 
 ColumnPredicate* PredicateParser::parse(const TCondition& condition) const {

@@ -213,6 +213,14 @@ private:
     RuntimeProfile::Counter* _page_checksum_time = nullptr;
     RuntimeProfile::Counter* _parse_page_footer_time = nullptr;
     RuntimeProfile::Counter* _load_index_time = nullptr;
+
+    RuntimeProfile::Counter* _open_block_time = nullptr;
+    RuntimeProfile::Counter* _check_low_card_time = nullptr;
+    RuntimeProfile::Counter* _init_column_iterator_time = nullptr;
+    RuntimeProfile::Counter* _rewrite_predicate_time = nullptr;
+    RuntimeProfile::Counter* _init_context_time = nullptr;
+    RuntimeProfile::Counter* _load_ordinal_index_time = nullptr;
+    RuntimeProfile::Counter* _load_zonemap_index_time = nullptr;
 };
 
 } // namespace starrocks::vectorized

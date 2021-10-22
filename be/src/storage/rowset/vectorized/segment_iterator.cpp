@@ -443,12 +443,22 @@ Status SegmentIterator::_init() {
     CurrentMemTracker::consume(_selected_idx.capacity() * sizeof(_selected_idx[0]));
     StarRocksMetrics::instance()->segment_read_total.increment(1);
     // get file handle from file descriptor of segment
-    RETURN_IF_ERROR(_opts.block_mgr->open_block(_segment->file_name(), &_rblock));
+    {
+        SCOPED_RAW_TIMER(&_opts.stats->open_block_time);
+        RETURN_IF_ERROR(_opts.block_mgr->open_block(_segment->file_name(), &_rblock));
+    }
 
     /// the calling order matters, do not change unless you know why.
 
-    RETURN_IF_ERROR(_check_low_cardinality_optimization());
-    RETURN_IF_ERROR(_init_column_iterators(_schema));
+    {
+        SCOPED_RAW_TIMER(&_opts.stats->check_low_card_time);
+        RETURN_IF_ERROR(_check_low_cardinality_optimization());
+    }
+    {
+        SCOPED_RAW_TIMER(&_opts.stats->init_column_iterator_time);
+        RETURN_IF_ERROR(_init_column_iterators(_schema));
+    }
+    
     RETURN_IF_ERROR(_init_bitmap_index_iterators());
     {
         SCOPED_RAW_TIMER(&_opts.stats->segment_index_time);
@@ -457,8 +467,15 @@ Status SegmentIterator::_init() {
         RETURN_IF_ERROR(_get_row_ranges_by_zone_map());
         RETURN_IF_ERROR(_get_row_ranges_by_bloom_filter());
     }
-    _rewrite_predicates();
-    RETURN_IF_ERROR(_init_context());
+    {
+        SCOPED_RAW_TIMER(&_opts.stats->segment_index_time);
+        _rewrite_predicates();
+    }
+    
+    {
+        SCOPED_RAW_TIMER(&_opts.stats->init_context_time);
+        RETURN_IF_ERROR(_init_context());
+    }
     _init_column_predicates();
     _range_iter = _scan_range.new_iterator();
 

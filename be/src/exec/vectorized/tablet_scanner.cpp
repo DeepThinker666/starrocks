@@ -339,6 +339,14 @@ void TabletScanner::update_counter() {
     COUNTER_UPDATE(_parent->_load_next_page_time, _reader->stats().load_next_page_time);
     COUNTER_UPDATE(_parent->_tablet_reader_open_timer, _reader->stats().tablet_reader_open_timer);
 
+    COUNTER_UPDATE(_parent->_open_block_time, _reader->stats().open_block_time);
+    COUNTER_UPDATE(_parent->_check_low_card_time, _reader->stats().check_low_card_time);
+    COUNTER_UPDATE(_parent->_init_column_iterator_time, _reader->stats().init_column_iterator_time);
+    COUNTER_UPDATE(_parent->_rewrite_predicate_time, _reader->stats().rewrite_predicate_time);
+    COUNTER_UPDATE(_parent->_init_context_time, _reader->stats().init_context_time);
+    COUNTER_UPDATE(_parent->_load_ordinal_index_time, _reader->stats().load_ordinal_index_time);
+    COUNTER_UPDATE(_parent->_load_zonemap_index_time, _reader->stats().load_zonemap_index_time);
+
     StarRocksMetrics::instance()->query_scan_bytes.increment(_compressed_bytes_read);
     StarRocksMetrics::instance()->query_scan_rows.increment(_raw_rows_read);
 

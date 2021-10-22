@@ -188,7 +188,7 @@ public:
 
     // Read and load necessary column indexes into memory if it hasn't been loaded.
     // May be called multiple times, subsequent calls will no op.
-    Status ensure_index_loaded(ReaderType reader_type);
+    Status ensure_index_loaded(OlapReaderStatistics* stats, ReaderType reader_type);
 
 private:
     ColumnReader(MemTracker* mem_tracker, const ColumnReaderOptions& opts, const ColumnMetaPB& meta, uint64_t num_rows,

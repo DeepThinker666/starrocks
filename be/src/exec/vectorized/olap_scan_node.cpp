@@ -426,6 +426,14 @@ void OlapScanNode::_init_counter(RuntimeState* state) {
     _rowsets_read_count = ADD_COUNTER(_scan_profile, "RowsetsReadCount", TUnit::UNIT);
     _segments_read_count = ADD_COUNTER(_scan_profile, "SegmentsReadCount", TUnit::UNIT);
 
+    _open_block_time = ADD_CHILD_TIMER(_scan_profile, "SegmentOpenBlockTime", "SegmentRead");
+    _check_low_card_time = ADD_CHILD_TIMER(_scan_profile, "SegmentCheckLowCardTime", "SegmentRead");
+    _init_column_iterator_time = ADD_CHILD_TIMER(_scan_profile, "SegmentInitColumnIteratorTime", "SegmentRead");
+    _rewrite_predicate_time = ADD_CHILD_TIMER(_scan_profile, "SegmentRewritePredicateTime", "SegmentRead");
+    _init_context_time = ADD_CHILD_TIMER(_scan_profile, "SegmentInitContextTime", "SegmentRead");
+    _load_ordinal_index_time = ADD_CHILD_TIMER(_scan_profile, "LoadOrdinalIndexTime", "SegmentRead");
+    _load_zonemap_index_time = ADD_CHILD_TIMER(_scan_profile, "LoadZoneMapIndexTime", "SegmentRead");
+
     /// IOTime
     _io_timer = ADD_TIMER(_scan_profile, "IOTime");
 }
