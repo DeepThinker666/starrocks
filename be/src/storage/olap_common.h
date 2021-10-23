@@ -397,6 +397,7 @@ struct OlapReaderStatistics {
     int64_t block_fetch_ns = 0; // time of rowset reader's `next_batch()` call
     int64_t block_seek_num = 0;
     int64_t block_seek_ns = 0;
+    int64_t column_seek_num = 0;
     int64_t block_convert_ns = 0;
 
     int64_t decode_dict_ns = 0;
@@ -462,6 +463,8 @@ struct OlapReaderStatistics {
     int64_t init_context_time = 0;
     int64_t load_ordinal_index_time = 0;
     int64_t load_zonemap_index_time = 0;
+
+    int64_t sequence_page_num = 0;
 };
 
 typedef uint32_t ColumnId;

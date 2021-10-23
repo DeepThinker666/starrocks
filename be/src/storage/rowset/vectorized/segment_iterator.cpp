@@ -265,7 +265,10 @@ private:
         }
 
         Status seek_columns(ordinal_t pos) {
+            _stats->block_seek_num += 1;
+            SCOPED_RAW_TIMER(&_stats->block_seek_ns);
             for (auto iter : _column_iterators) {
+                _stats->column_seek_num++;
                 RETURN_IF_ERROR(iter->seek_to_ordinal(pos));
             }
             return Status::OK();
@@ -299,6 +302,7 @@ private:
         std::shared_ptr<Chunk> _read_chunk;
         std::shared_ptr<Chunk> _dict_chunk;
         std::shared_ptr<Chunk> _final_chunk;
+        OlapReaderStatistics* _stats;
 
         // true iff |_is_dict_column| contains at least one `true`, i.e,
         // |_column_iterators| contains at least one `DictCodeColumnIterator`.
@@ -701,8 +705,10 @@ Status SegmentIterator::_lookup_ordinal(const SeekTuple& key, bool lower, rowid_
 }
 
 Status SegmentIterator::_seek_columns(const Schema& schema, rowid_t pos) {
+    _opts.stats->block_seek_num++;
     SCOPED_RAW_TIMER(&_opts.stats->block_seek_ns);
     for (const FieldPtr& f : schema.fields()) {
+        _opts.stats->column_seek_num++;
         RETURN_IF_ERROR(_column_iterators[f->id()]->seek_to_ordinal(pos));
     }
     return Status::OK();
@@ -729,8 +735,6 @@ inline Status SegmentIterator::_read(Chunk* chunk, vector<rowid_t>* rowid, size_
     size_t nread = r.span_size();
     if (_cur_rowid != r.begin() || _cur_rowid == 0) {
         _cur_rowid = r.begin();
-        _opts.stats->block_seek_num += 1;
-        SCOPED_RAW_TIMER(&_opts.stats->block_seek_ns);
         RETURN_IF_ERROR(_context->seek_columns(_cur_rowid));
     }
     {
@@ -1036,6 +1040,7 @@ Status SegmentIterator::_build_context(ScanContext* ctx) {
     ctx->_dict_decode_schema.reserve(ctx_fields);
     ctx->_is_dict_column.reserve(ctx_fields);
     ctx->_column_iterators.reserve(ctx_fields);
+    ctx->_stats = _opts.stats;
 
     for (size_t i = 0; i < early_materialize_fields; i++) {
         const FieldPtr& f = _schema.field(i);

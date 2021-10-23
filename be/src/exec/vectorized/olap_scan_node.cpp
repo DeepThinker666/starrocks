@@ -396,6 +396,8 @@ void OlapScanNode::_init_counter(RuntimeState* state) {
     _block_load_counter = ADD_CHILD_COUNTER(_scan_profile, "BlockFetchCount", TUnit::UNIT, "SegmentRead");
     _block_seek_timer = ADD_CHILD_TIMER(_scan_profile, "BlockSeek", "SegmentRead");
     _block_seek_counter = ADD_CHILD_COUNTER(_scan_profile, "BlockSeekCount", TUnit::UNIT, "SegmentRead");
+    _column_seek_num = ADD_CHILD_COUNTER(_scan_profile, "ColumnSeekCount", TUnit::UNIT, "SegmentRead");
+    _sequence_page_num = ADD_CHILD_COUNTER(_scan_profile, "SequencePageReadNum", TUnit::UNIT, "SegmentRead");
     _pred_filter_timer = ADD_CHILD_TIMER(_scan_profile, "PredFilter", "SegmentRead");
     _pred_filter_counter = ADD_CHILD_COUNTER(_scan_profile, "PredFilterRows", TUnit::UNIT, "SegmentRead");
     _del_vec_filter_counter = ADD_CHILD_COUNTER(_scan_profile, "DelVecFilterRows", TUnit::UNIT, "SegmentRead");

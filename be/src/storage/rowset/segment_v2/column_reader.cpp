@@ -808,6 +808,7 @@ Status FileColumnIterator::next_batch(size_t* n, vectorized::Column* dst) {
     while (remaining > 0) {
         if (_page->remaining() == 0) {
             bool eos = false;
+            _opts.stats->sequence_page_num++;
             RETURN_IF_ERROR(_load_next_page(&eos));
             if (eos) {
                 break;

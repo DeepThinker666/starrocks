@@ -221,6 +221,9 @@ private:
     RuntimeProfile::Counter* _init_context_time = nullptr;
     RuntimeProfile::Counter* _load_ordinal_index_time = nullptr;
     RuntimeProfile::Counter* _load_zonemap_index_time = nullptr;
+
+    RuntimeProfile::Counter* _column_seek_num = nullptr;
+    RuntimeProfile::Counter* _sequence_page_num = nullptr;
 };
 
 } // namespace starrocks::vectorized
