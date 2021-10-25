@@ -274,6 +274,14 @@ private:
             return Status::OK();
         }
 
+        Status seek_column(uint32_t col_id, ordinal_t pos) {
+            _stats->block_seek_num += 1;
+            SCOPED_RAW_TIMER(&_stats->block_seek_ns);
+            _stats->column_seek_num++;
+            RETURN_IF_ERROR(_column_iterators[col_id]->seek_to_ordinal(pos));
+            return Status::OK();
+        }
+
         Status read_columns(Chunk* chunk, size_t n) {
             bool may_has_del_row = chunk->delete_state() != DEL_NOT_SATISFIED;
             for (size_t i = 0; i < _column_iterators.size(); i++) {
@@ -285,12 +293,23 @@ private:
             return Status::OK();
         }
 
+        Status read_column(uint32_t col_id, Chunk* chunk, size_t n, bool* may_has_del_row) {
+            const ColumnPtr& col = chunk->get_column_by_index(col_id);
+            RETURN_IF_ERROR(_column_iterators[col_id]->next_batch(&n, col.get()));
+            *may_has_del_row |= (col->delete_state() != DEL_NOT_SATISFIED);
+            return Status::OK();
+        }
+
         int64_t memory_usage() const {
             int64_t usage = 0;
             usage += (_read_chunk != nullptr) ? _read_chunk->memory_usage() : 0;
             usage += (_dict_chunk.get() != _read_chunk.get()) ? _dict_chunk->memory_usage() : 0;
             usage += (_final_chunk.get() != _dict_chunk.get()) ? _final_chunk->memory_usage() : 0;
             return usage;
+        }
+
+        size_t column_size() {
+            return _column_iterators.size();
         }
 
         Schema _read_schema;
@@ -784,6 +803,52 @@ Status SegmentIterator::do_get_next(Chunk* chunk, vector<uint32_t>* rowid) {
     return st;
 }
 
+Status SegmentIterator::_read_column(size_t n, rowid_t cur_rowid, uint32_t col_id, SparseRangeIterator range_iter, Chunk* result, vector<rowid_t>* rowids) {
+    int num = 0;
+    while ((num < n) & range_iter.has_more()) {
+        Range r = range_iter.next(n - num);
+        size_t nread = r.span_size();
+        if (cur_rowid != r.begin() || cur_rowid == 0) {
+            cur_rowid = r.begin();
+            RETURN_IF_ERROR(_context->seek_column(col_id, cur_rowid));
+        }
+        {
+            _opts.stats->blocks_load += 1;
+            SCOPED_RAW_TIMER(&_opts.stats->block_fetch_ns);
+            RETURN_IF_ERROR(_context->read_column(col_id, result, nread));
+        }
+        num += nread;
+        if (col_id == 0) {
+            if (rowids != nullptr) {
+                for (uint32_t i = cur_rowid; i < cur_rowid + nread; i++) {
+                    rowids->push_back(i);
+                }
+            }
+            _chunk_rowid_start = cur_rowid;
+            _cur_rowid = cur_rowid + nread;
+            _range_iter = range_iter;
+        }
+        chunk->check_or_die();
+    }
+    return Status::OK();
+}
+
+Status SegmentIterator::_read_by_column(size_t n, Chunk* result, vector<rowid_t>* rowids) {
+    // update _cur_rowid, done
+    // check chunk status, done
+    // filter chunk
+    // update rowids, done
+    Chunk* chunk = _context->_read_chunk.get();
+    sizet_t chunk_start = chunk->num_rows();
+    size_t column_size = _context->column_size();
+    for (int i = 0; i < column_size; ++i) {
+        RETURN_IF_ERROR(_read_column(n, _cur_rowid, i, _range_iter, chunk, rowids));
+    }
+    _opts.stats->raw_rows_read += chunk->num_rows();
+    chunk->check_or_die();
+    return Status::OK();
+}
+
 Status SegmentIterator::_do_get_next(Chunk* result, vector<rowid_t>* rowid) {
     MonotonicStopWatch sw;
     sw.start();
@@ -804,7 +869,8 @@ Status SegmentIterator::_do_get_next(Chunk* result, vector<rowid_t>* rowid) {
     CurrentMemTracker::consume(old_mem_usage);
 
     Chunk* chunk = _context->_read_chunk.get();
-
+    _read_by_column(chunk_capacity - chunk_start, chunk, rowid);
+    /*
     while ((chunk_start < chunk_capacity) & _range_iter.has_more()) {
         RETURN_IF_ERROR(_read(chunk, rowid, chunk_capacity - chunk_start));
         chunk->check_or_die();
@@ -816,6 +882,14 @@ Status SegmentIterator::_do_get_next(Chunk* result, vector<rowid_t>* rowid) {
         }
         chunk_start = next_start;
         DCHECK_EQ(chunk_start, chunk->num_rows());
+    }
+    */
+
+    size_t next_start = chunk->num_rows();
+    if (has_predicate || _del_vec) {
+        next_start = _filter(chunk, rowid, chunk_start, next_start);
+        chunk->check_or_die();
+        chunk_start = next_start;
     }
 
     _opts.stats->block_load_ns += sw.elapsed_time();
