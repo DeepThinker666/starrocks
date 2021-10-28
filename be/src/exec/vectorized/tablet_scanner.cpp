@@ -349,6 +349,17 @@ void TabletScanner::update_counter() {
     COUNTER_UPDATE(_parent->_load_zonemap_index_time, _reader->stats().load_zonemap_index_time);
     COUNTER_UPDATE(_parent->_sequence_page_num, _reader->stats().sequence_page_num);
 
+    COUNTER_UPDATE(_parent->_load_ordinal_index_count, _reader->stats().load_ordinal_index_count);
+    COUNTER_UPDATE(_parent->_load_zonemap_index_count, _reader->stats().load_zonemap_index_count);
+    COUNTER_UPDATE(_parent->_total_page_num, _reader->stats().total_page_num);
+    COUNTER_UPDATE(_parent->_ordinal_index_size, _reader->stats().ordinal_index_size);
+    COUNTER_UPDATE(_parent->_load_bitmap_index_time, _reader->stats().load_bitmap_index_time);
+    COUNTER_UPDATE(_parent->_load_bloomfilter_index_time, _reader->stats().load_bloomfilter_index_time);
+    COUNTER_UPDATE(_parent->_load_bitmap_index_count, _reader->stats().load_bitmap_index_count);
+    COUNTER_UPDATE(_parent->_load_bloomfilter_index_count, _reader->stats().load_bloomfilter_index_count);
+    COUNTER_UPDATE(_parent->_switch_context_time, _reader->stats().switch_context_time);
+    COUNTER_UPDATE(_parent->_ordinal_index_decompress_time, _reader->stats().ordinal_index_decompress_time);
+
     StarRocksMetrics::instance()->query_scan_bytes.increment(_compressed_bytes_read);
     StarRocksMetrics::instance()->query_scan_rows.increment(_raw_rows_read);
 

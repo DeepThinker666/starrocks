@@ -222,8 +222,23 @@ private:
     RuntimeProfile::Counter* _load_ordinal_index_time = nullptr;
     RuntimeProfile::Counter* _load_zonemap_index_time = nullptr;
 
+    RuntimeProfile::Counter* _load_ordinal_index_count = nullptr;
+    RuntimeProfile::Counter* _load_zonemap_index_count = nullptr;
+    RuntimeProfile::Counter* _total_page_num = nullptr;
+
+    RuntimeProfile::Counter* _ordinal_index_size = nullptr;
+
+    RuntimeProfile::Counter* _load_bitmap_index_time = nullptr;
+    RuntimeProfile::Counter* _load_bloomfilter_index_time = nullptr;
+
+    RuntimeProfile::Counter* _load_bitmap_index_count = nullptr;
+    RuntimeProfile::Counter* _load_bloomfilter_index_count = nullptr;
+
     RuntimeProfile::Counter* _column_seek_num = nullptr;
     RuntimeProfile::Counter* _sequence_page_num = nullptr;
+
+    RuntimeProfile::Counter* _switch_context_time = nullptr;
+    RuntimeProfile::Counter* _ordinal_index_decompress_time = nullptr;
 };
 
 } // namespace starrocks::vectorized

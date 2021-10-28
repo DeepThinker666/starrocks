@@ -128,8 +128,8 @@ public:
     Status new_bitmap_index_iterator(BitmapIndexIterator** iterator);
 
     // Seek to the first entry in the column.
-    Status seek_to_first(OrdinalPageIndexIterator* iter);
-    Status seek_at_or_before(ordinal_t ordinal, OrdinalPageIndexIterator* iter);
+    Status seek_to_first(OlapReaderStatistics* stats, OrdinalPageIndexIterator* iter);
+    Status seek_at_or_before(OlapReaderStatistics* stats, ordinal_t ordinal, OrdinalPageIndexIterator* iter);
 
     // read a page from file into a page handle
     Status read_page(const ColumnIteratorOptions& iter_opts, const PagePointer& pp, PageHandle* handle,
@@ -151,12 +151,12 @@ public:
     // get row ranges with zone map
     // - cond_column is user's query predicate
     // - delete_condition is a delete predicate of one version
-    Status get_row_ranges_by_zone_map(CondColumn* cond_column, CondColumn* delete_condition,
+    Status get_row_ranges_by_zone_map(OlapReaderStatistics* stats, CondColumn* cond_column, CondColumn* delete_condition,
                                       std::unordered_set<uint32_t>* delete_partial_filtered_pages,
                                       RowRanges* row_ranges);
 
     // get row ranges with bloom filter index
-    Status get_row_ranges_by_bloom_filter(CondColumn* cond_column, RowRanges* row_ranges);
+    Status get_row_ranges_by_bloom_filter(OlapReaderStatistics* stats, CondColumn* cond_column, RowRanges* row_ranges);
 
     PagePointer get_dict_page_pointer() const { return _dict_page_pointer; }
     FieldType column_type() const { return _column_type; }
@@ -170,7 +170,7 @@ public:
     ///-----------------------------------
 
     // page-level zone map filter.
-    Status zone_map_filter(const std::vector<const ::starrocks::vectorized::ColumnPredicate*>& p,
+    Status zone_map_filter(OlapReaderStatistics* stats, const std::vector<const ::starrocks::vectorized::ColumnPredicate*>& p,
                            const ::starrocks::vectorized::ColumnPredicate* del_predicate,
                            std::unordered_set<uint32_t>* del_partial_filtered_pages,
                            vectorized::SparseRange* row_ranges);
@@ -181,7 +181,7 @@ public:
     bool segment_zone_map_filter(const std::vector<const ::starrocks::vectorized::ColumnPredicate*>& predicates) const;
 
     // prerequisite: at least one predicate in |predicates| support bloom filter.
-    Status bloom_filter(const std::vector<const ::starrocks::vectorized::ColumnPredicate*>& p,
+    Status bloom_filter(OlapReaderStatistics* stats, const std::vector<const ::starrocks::vectorized::ColumnPredicate*>& p,
                         vectorized::SparseRange* ranges);
 
     uint32_t version() const { return _opts.storage_format_version; }
@@ -190,16 +190,21 @@ public:
     // May be called multiple times, subsequent calls will no op.
     Status ensure_index_loaded(OlapReaderStatistics* stats, ReaderType reader_type);
 
+    Status load_ordinal_index(OlapReaderStatistics* stats, bool use_page_cache, bool kept_in_memory);
+    Status load_zonemap_index(OlapReaderStatistics* stats, bool use_page_cache, bool kept_in_memory);
+    Status load_bitmap_index(OlapReaderStatistics* stats, bool use_page_cache, bool kept_in_memory);
+    Status load_bloomfilter_index(OlapReaderStatistics* stats, bool use_page_cache, bool kept_in_memory);
+
 private:
     ColumnReader(MemTracker* mem_tracker, const ColumnReaderOptions& opts, const ColumnMetaPB& meta, uint64_t num_rows,
                  const std::string& file_name);
 
     Status init(const ColumnMetaPB& meta);
 
-    Status _load_zone_map_index(bool use_page_cache, bool kept_in_memory);
-    Status _load_ordinal_index(bool use_page_cache, bool kept_in_memory);
+    Status _load_zonemap_index(bool use_page_cache, bool kept_in_memory);
+    Status _load_ordinal_index(OlapReaderStatistics* stats, bool use_page_cache, bool kept_in_memory);
     Status _load_bitmap_index(bool use_page_cache, bool kept_in_memory);
-    Status _load_bloom_filter_index(bool use_page_cache, bool kept_in_memory);
+    Status _load_bloomfilter_index(bool use_page_cache, bool kept_in_memory);
 
     static bool _zone_map_match_condition(const ZoneMapPB& zone_map, WrapperField* min_value_container,
                                           WrapperField* max_value_container, CondColumn* cond);
@@ -251,6 +256,9 @@ private:
     // zonemap, bitmap, bloomfilter is only necessary for query.
     // the other operations can not load these indices.
     StarRocksCallOnce<Status> _load_ordinal_index_once;
+    StarRocksCallOnce<Status> _load_zonemap_index_once;
+    StarRocksCallOnce<Status> _load_bitmap_index_once;
+    StarRocksCallOnce<Status> _load_bloomfilter_index_once;
     StarRocksCallOnce<Status> _load_indices_once;
 
     std::unique_ptr<ZoneMapIndexReader> _zone_map_index;

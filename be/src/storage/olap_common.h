@@ -463,8 +463,20 @@ struct OlapReaderStatistics {
     int64_t init_context_time = 0;
     int64_t load_ordinal_index_time = 0;
     int64_t load_zonemap_index_time = 0;
+    int64_t load_ordinal_index_count = 0;
+    int64_t load_zonemap_index_count = 0;
+    int64_t ordinal_index_size = 0;
+    int64_t total_page_num = 0;
+
+    int64_t load_bitmap_index_time = 0;
+    int64_t load_bloomfilter_index_time = 0;
+    int64_t load_bitmap_index_count = 0;
+    int64_t load_bloomfilter_index_count = 0;
 
     int64_t sequence_page_num = 0;
+
+    int64_t switch_context_time = 0;
+    int64_t ordinal_index_decompress_time = 0;
 };
 
 typedef uint32_t ColumnId;

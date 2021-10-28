@@ -472,7 +472,7 @@ Status SegmentIterator::_init() {
         RETURN_IF_ERROR(_get_row_ranges_by_bloom_filter());
     }
     {
-        SCOPED_RAW_TIMER(&_opts.stats->segment_index_time);
+        SCOPED_RAW_TIMER(&_opts.stats->rewrite_predicate_time);
         _rewrite_predicates();
     }
     
@@ -889,6 +889,7 @@ Status SegmentIterator::_do_get_next(Chunk* result, vector<rowid_t>* rowid) {
 }
 
 void SegmentIterator::_switch_context(ScanContext* to) {
+    SCOPED_RAW_TIMER(&_opts.stats->switch_context_time);
     if (_context != nullptr) {
         const ordinal_t ordinal = _context->_column_iterators[0]->get_current_ordinal();
         for (ColumnIterator* iter : to->_column_iterators) {

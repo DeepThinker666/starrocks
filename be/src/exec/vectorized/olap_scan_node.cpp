@@ -436,6 +436,22 @@ void OlapScanNode::_init_counter(RuntimeState* state) {
     _load_ordinal_index_time = ADD_CHILD_TIMER(_scan_profile, "LoadOrdinalIndexTime", "SegmentRead");
     _load_zonemap_index_time = ADD_CHILD_TIMER(_scan_profile, "LoadZoneMapIndexTime", "SegmentRead");
 
+
+    _load_ordinal_index_count = ADD_CHILD_COUNTER(_scan_profile, "LoadOrdinalIndexCount", TUnit::UNIT, "SegmentRead");
+    _load_zonemap_index_count = ADD_CHILD_COUNTER(_scan_profile, "LoadZoneMapIndexCount", TUnit::UNIT, "SegmentRead");
+
+    _total_page_num = ADD_CHILD_COUNTER(_scan_profile, "ColumnTotalPageNumber", TUnit::UNIT, "SegmentRead");
+    _ordinal_index_size = ADD_CHILD_COUNTER(_scan_profile, "OrdinalIndexSize", TUnit::UNIT, "SegmentRead");
+
+    _load_bitmap_index_time = ADD_CHILD_TIMER(_scan_profile, "LoadBitmapIndexTime", "SegmentRead");
+    _load_bloomfilter_index_time = ADD_CHILD_TIMER(_scan_profile, "LoadBloomFilterIndexTime", "SegmentRead");
+
+    _load_bitmap_index_count = ADD_CHILD_COUNTER(_scan_profile, "LoadBitMapIndexCount", TUnit::UNIT, "SegmentRead");
+    _load_bloomfilter_index_count = ADD_CHILD_COUNTER(_scan_profile, "LoadBloomFilterIndexCount", TUnit::UNIT, "SegmentRead");
+
+    _switch_context_time = ADD_CHILD_TIMER(_scan_profile, "SwitchContextTime", "SegmentRead");
+    _ordinal_index_decompress_time = ADD_CHILD_TIMER(_scan_profile, "OrdinalIndexDecompressTime", "SegmentRead");
+
     /// IOTime
     _io_timer = ADD_TIMER(_scan_profile, "IOTime");
 }

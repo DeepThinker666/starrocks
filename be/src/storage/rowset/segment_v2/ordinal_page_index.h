@@ -70,7 +70,7 @@ public:
     OrdinalIndexReader() = default;
 
     // load and parse the index page into memory
-    Status load(fs::BlockManager* block_mgr, const std::string& filename, const OrdinalIndexPB* index_meta,
+    Status load(OlapReaderStatistics* stats, fs::BlockManager* block_mgr, const std::string& filename, const OrdinalIndexPB* index_meta,
                 ordinal_t num_values, bool use_page_cache, bool kept_in_memory);
 
     OrdinalPageIndexIterator seek_at_or_before(ordinal_t ordinal);
@@ -89,6 +89,10 @@ public:
         return sizeof(OrdinalIndexReader) + _ordinals.size() * sizeof(ordinal_t) + _pages.size() * sizeof(PagePointer);
     }
 
+    size_t index_size() {
+        return _index_size;
+    }
+
 private:
     friend OrdinalPageIndexIterator;
 
@@ -98,6 +102,7 @@ private:
     std::vector<ordinal_t> _ordinals;
     // _pages[i] = page pointer to the i-th data page
     std::vector<PagePointer> _pages;
+    size_t _index_size = 0;
 };
 
 class OrdinalPageIndexIterator {

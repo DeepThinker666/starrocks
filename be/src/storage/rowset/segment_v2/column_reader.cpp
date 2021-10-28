@@ -167,9 +167,10 @@ Status ColumnReader::read_page(const ColumnIteratorOptions& iter_opts, const Pag
     return PageIO::read_and_decompress_page(opts, handle, page_body, footer);
 }
 
-Status ColumnReader::get_row_ranges_by_zone_map(CondColumn* cond_column, CondColumn* delete_condition,
+Status ColumnReader::get_row_ranges_by_zone_map(OlapReaderStatistics* stats, CondColumn* cond_column, CondColumn* delete_condition,
                                                 std::unordered_set<uint32_t>* delete_partial_filtered_pages,
                                                 RowRanges* row_ranges) {
+    RETURN_IF_ERROR(load_zonemap_index(stats, !config::disable_storage_page_cache, false));
     std::vector<uint32_t> page_indexes;
     RETURN_IF_ERROR(_get_filtered_pages(cond_column, delete_condition, delete_partial_filtered_pages, &page_indexes));
     RETURN_IF_ERROR(_calculate_row_ranges(page_indexes, row_ranges));
@@ -279,7 +280,8 @@ Status ColumnReader::_calculate_row_ranges(const std::vector<uint32_t>& page_ind
     return Status::OK();
 }
 
-Status ColumnReader::get_row_ranges_by_bloom_filter(CondColumn* cond_column, RowRanges* row_ranges) {
+Status ColumnReader::get_row_ranges_by_bloom_filter(OlapReaderStatistics* stats, CondColumn* cond_column, RowRanges* row_ranges) {
+    RETURN_IF_ERROR(load_bloomfilter_index(stats, !config::disable_storage_page_cache, false));
     RowRanges bf_row_ranges;
     std::unique_ptr<BloomFilterIndexIterator> bf_iter;
     RETURN_IF_ERROR(_bloom_filter_index->new_iterator(&bf_iter));
@@ -310,8 +312,9 @@ Status ColumnReader::get_row_ranges_by_bloom_filter(CondColumn* cond_column, Row
 }
 
 // prerequisite: at least one predicate in |predicates| support bloom filter.
-Status ColumnReader::bloom_filter(const std::vector<const vectorized::ColumnPredicate*>& predicates,
+Status ColumnReader::bloom_filter(OlapReaderStatistics* stats, const std::vector<const vectorized::ColumnPredicate*>& predicates,
                                   vectorized::SparseRange* row_ranges) {
+    RETURN_IF_ERROR(load_bloomfilter_index(stats, !config::disable_storage_page_cache, false));
     vectorized::SparseRange bf_row_ranges;
     std::unique_ptr<BloomFilterIndexIterator> bf_iter;
     RETURN_IF_ERROR(_bloom_filter_index->new_iterator(&bf_iter));
@@ -342,16 +345,58 @@ Status ColumnReader::bloom_filter(const std::vector<const vectorized::ColumnPred
     return Status::OK();
 }
 
-Status ColumnReader::_load_ordinal_index(bool use_page_cache, bool kept_in_memory) {
+Status ColumnReader::load_ordinal_index(OlapReaderStatistics* stats, bool use_page_cache, bool kept_in_memory) {
+    Status status = _load_ordinal_index_once.call([this, stats, use_page_cache, kept_in_memory] {
+        SCOPED_RAW_TIMER(&stats->load_ordinal_index_time);
+        stats->load_ordinal_index_count++;
+        RETURN_IF_ERROR(_load_ordinal_index(stats, use_page_cache, kept_in_memory));
+        stats->total_page_num += _ordinal_index->num_data_pages();
+        stats->ordinal_index_size += _ordinal_index->index_size();
+        return Status::OK();
+    });
+    return status;
+}
+
+Status ColumnReader::load_zonemap_index(OlapReaderStatistics* stats, bool use_page_cache, bool kept_in_memory) {
+    Status status = _load_zonemap_index_once.call([this, stats, use_page_cache, kept_in_memory] {
+        SCOPED_RAW_TIMER(&stats->load_zonemap_index_time);
+        stats->load_zonemap_index_count++;
+        RETURN_IF_ERROR(_load_zonemap_index(use_page_cache, kept_in_memory));
+        return Status::OK();
+    });
+    return status;
+}
+
+Status ColumnReader::load_bitmap_index(OlapReaderStatistics* stats, bool use_page_cache, bool kept_in_memory) {
+    Status status = _load_bitmap_index_once.call([this, stats, use_page_cache, kept_in_memory] {
+        SCOPED_RAW_TIMER(&stats->load_bitmap_index_time);
+        stats->load_bitmap_index_count++;
+        RETURN_IF_ERROR(_load_bitmap_index(use_page_cache, kept_in_memory));
+        return Status::OK();
+    });
+    return status;
+}
+
+Status ColumnReader::load_bloomfilter_index(OlapReaderStatistics* stats, bool use_page_cache, bool kept_in_memory) {
+    Status status = _load_bloomfilter_index_once.call([this, stats, use_page_cache, kept_in_memory] {
+        SCOPED_RAW_TIMER(&stats->load_bloomfilter_index_time);
+        stats->load_bloomfilter_index_count++;
+        RETURN_IF_ERROR(_load_bloomfilter_index(use_page_cache, kept_in_memory));
+        return Status::OK();
+    });
+    return status;
+}
+
+Status ColumnReader::_load_ordinal_index(OlapReaderStatistics* stats, bool use_page_cache, bool kept_in_memory) {
     DCHECK(_ordinal_index_meta != nullptr);
     _ordinal_index = std::make_unique<OrdinalIndexReader>();
-    Status status = _ordinal_index->load(_opts.block_mgr, _file_name, _ordinal_index_meta, _num_rows, use_page_cache,
+    Status status = _ordinal_index->load(stats, _opts.block_mgr, _file_name, _ordinal_index_meta, _num_rows, use_page_cache,
                                          kept_in_memory);
     _mem_tracker->consume(_ordinal_index->mem_usage());
     return Status::OK();
 }
 
-Status ColumnReader::_load_zone_map_index(bool use_page_cache, bool kept_in_memory) {
+Status ColumnReader::_load_zonemap_index(bool use_page_cache, bool kept_in_memory) {
     if (_zone_map_index_meta != nullptr) {
         _zone_map_index = std::make_unique<ZoneMapIndexReader>();
         Status status = _zone_map_index->load(_opts.block_mgr, _file_name, _zone_map_index_meta, use_page_cache,
@@ -373,7 +418,7 @@ Status ColumnReader::_load_bitmap_index(bool use_page_cache, bool kept_in_memory
     return Status::OK();
 }
 
-Status ColumnReader::_load_bloom_filter_index(bool use_page_cache, bool kept_in_memory) {
+Status ColumnReader::_load_bloomfilter_index(bool use_page_cache, bool kept_in_memory) {
     if (_bf_index_meta != nullptr) {
         _bloom_filter_index = std::make_unique<BloomFilterIndexReader>();
         Status status =
@@ -384,7 +429,8 @@ Status ColumnReader::_load_bloom_filter_index(bool use_page_cache, bool kept_in_
     return Status::OK();
 }
 
-Status ColumnReader::seek_to_first(OrdinalPageIndexIterator* iter) {
+Status ColumnReader::seek_to_first(OlapReaderStatistics* stats, OrdinalPageIndexIterator* iter) {
+    RETURN_IF_ERROR(load_ordinal_index(stats, !config::disable_storage_page_cache, false));
     *iter = _ordinal_index->begin();
     if (!iter->valid()) {
         return Status::NotFound("Failed to seek to first rowid");
@@ -392,7 +438,8 @@ Status ColumnReader::seek_to_first(OrdinalPageIndexIterator* iter) {
     return Status::OK();
 }
 
-Status ColumnReader::seek_at_or_before(ordinal_t ordinal, OrdinalPageIndexIterator* iter) {
+Status ColumnReader::seek_at_or_before(OlapReaderStatistics* stats, ordinal_t ordinal, OrdinalPageIndexIterator* iter) {
+    RETURN_IF_ERROR(load_ordinal_index(stats, !config::disable_storage_page_cache, false));
     *iter = _ordinal_index->seek_at_or_before(ordinal);
     if (!iter->valid()) {
         return Status::NotFound(strings::Substitute("Failed to seek to ordinal $0, ", ordinal));
@@ -400,10 +447,11 @@ Status ColumnReader::seek_at_or_before(ordinal_t ordinal, OrdinalPageIndexIterat
     return Status::OK();
 }
 
-Status ColumnReader::zone_map_filter(const std::vector<const vectorized::ColumnPredicate*>& predicates,
+Status ColumnReader::zone_map_filter(OlapReaderStatistics* stats, const std::vector<const vectorized::ColumnPredicate*>& predicates,
                                      const vectorized::ColumnPredicate* del_predicate,
                                      std::unordered_set<uint32_t>* del_partial_filtered_pages,
                                      vectorized::SparseRange* row_ranges) {
+    RETURN_IF_ERROR(load_zonemap_index(stats, !config::disable_storage_page_cache, false));
     std::vector<uint32_t> page_indexes;
     RETURN_IF_ERROR(_zone_map_filter(predicates, del_predicate, del_partial_filtered_pages, &page_indexes));
     RETURN_IF_ERROR(_calculate_row_ranges(page_indexes, row_ranges));
@@ -484,7 +532,7 @@ Status ColumnReader::ensure_index_loaded(OlapReaderStatistics* stats, ReaderType
     Status status = _load_ordinal_index_once.call([this, stats] {
         SCOPED_RAW_TIMER(&stats->load_ordinal_index_time);
         bool use_page_cache = !config::disable_storage_page_cache;
-        RETURN_IF_ERROR(_load_ordinal_index(use_page_cache, _opts.kept_in_memory));
+        RETURN_IF_ERROR(_load_ordinal_index(stats, use_page_cache, _opts.kept_in_memory));
         return Status::OK();
     });
     RETURN_IF_ERROR(status);
@@ -495,11 +543,11 @@ Status ColumnReader::ensure_index_loaded(OlapReaderStatistics* stats, ReaderType
             bool use_page_cache = !config::disable_storage_page_cache;
             {
                 SCOPED_RAW_TIMER(&stats->load_zonemap_index_time);
-                RETURN_IF_ERROR(_load_zone_map_index(use_page_cache, _opts.kept_in_memory));
+                RETURN_IF_ERROR(_load_zonemap_index(use_page_cache, _opts.kept_in_memory));
             }
             
             RETURN_IF_ERROR(_load_bitmap_index(use_page_cache, _opts.kept_in_memory));
-            RETURN_IF_ERROR(_load_bloom_filter_index(use_page_cache, _opts.kept_in_memory));
+            RETURN_IF_ERROR(_load_bloomfilter_index(use_page_cache, _opts.kept_in_memory));
             return Status::OK();
         });
     }
@@ -672,10 +720,12 @@ FileColumnIterator::~FileColumnIterator() = default;
 
 Status FileColumnIterator::init(const ColumnIteratorOptions& opts) {
     _opts = opts;
+    /*
     {
         SCOPED_RAW_TIMER(&_opts.stats->load_index_time);
         RETURN_IF_ERROR(_reader->ensure_index_loaded(_opts.stats, opts.reader_type));
     }
+    */
 
     if (_reader->encoding_info()->encoding() != DICT_ENCODING) {
         return Status::OK();
@@ -720,7 +770,7 @@ Status FileColumnIterator::init(const ColumnIteratorOptions& opts) {
 }
 
 Status FileColumnIterator::seek_to_first() {
-    RETURN_IF_ERROR(_reader->seek_to_first(&_page_iter));
+    RETURN_IF_ERROR(_reader->seek_to_first(_opts.stats, &_page_iter));
     RETURN_IF_ERROR(_read_data_page(_page_iter));
 
     _seek_to_pos_in_page(_page.get(), 0);
@@ -731,7 +781,7 @@ Status FileColumnIterator::seek_to_first() {
 Status FileColumnIterator::seek_to_ordinal(ordinal_t ord) {
     // if current page contains this row, we don't need to seek
     if (_page == nullptr || !_page->contains(ord)) {
-        RETURN_IF_ERROR(_reader->seek_at_or_before(ord, &_page_iter));
+        RETURN_IF_ERROR(_reader->seek_at_or_before(_opts.stats, ord, &_page_iter));
         RETURN_IF_ERROR(_read_data_page(_page_iter));
     }
     _seek_to_pos_in_page(_page.get(), ord - _page->first_ordinal());
@@ -742,7 +792,7 @@ Status FileColumnIterator::seek_to_ordinal(ordinal_t ord) {
 Status FileColumnIterator::seek_to_ordinal_and_calc_element_ordinal(ordinal_t ord) {
     // if current page contains this row, we don't need to seek
     if (_page == nullptr || !_page->contains(ord)) {
-        RETURN_IF_ERROR(_reader->seek_at_or_before(ord, &_page_iter));
+        RETURN_IF_ERROR(_reader->seek_at_or_before(_opts.stats, ord, &_page_iter));
         RETURN_IF_ERROR(_read_data_page(_page_iter));
     }
     _array_size.resize(0);
@@ -904,7 +954,7 @@ Status FileColumnIterator::_read_data_page(const OrdinalPageIndexIterator& iter)
 Status FileColumnIterator::get_row_ranges_by_zone_map(CondColumn* cond_column, CondColumn* delete_condition,
                                                       RowRanges* row_ranges) {
     if (_reader->has_zone_map()) {
-        RETURN_IF_ERROR(_reader->get_row_ranges_by_zone_map(cond_column, delete_condition,
+        RETURN_IF_ERROR(_reader->get_row_ranges_by_zone_map(_opts.stats, cond_column, delete_condition,
                                                             &_delete_partial_satisfied_pages, row_ranges));
     }
     return Status::OK();
@@ -916,7 +966,7 @@ Status FileColumnIterator::get_row_ranges_by_zone_map(const std::vector<const ve
     DCHECK(row_ranges->empty());
     if (_reader->has_zone_map()) {
         RETURN_IF_ERROR(
-                _reader->zone_map_filter(predicates, del_predicate, &_delete_partial_satisfied_pages, row_ranges));
+                _reader->zone_map_filter(_opts.stats, predicates, del_predicate, &_delete_partial_satisfied_pages, row_ranges));
     } else {
         row_ranges->add({0, static_cast<rowid_t>(_reader->num_rows())});
     }
@@ -925,7 +975,7 @@ Status FileColumnIterator::get_row_ranges_by_zone_map(const std::vector<const ve
 
 Status FileColumnIterator::get_row_ranges_by_bloom_filter(CondColumn* cond_column, RowRanges* row_ranges) {
     if (cond_column != nullptr && cond_column->can_do_bloom_filter() && _reader->has_bloom_filter_index()) {
-        RETURN_IF_ERROR(_reader->get_row_ranges_by_bloom_filter(cond_column, row_ranges));
+        RETURN_IF_ERROR(_reader->get_row_ranges_by_bloom_filter(_opts.stats, cond_column, row_ranges));
     }
     return Status::OK();
 }
@@ -938,7 +988,7 @@ Status FileColumnIterator::get_row_ranges_by_bloom_filter(
         support = support | pred->support_bloom_filter();
     }
     RETURN_IF(!support, Status::OK());
-    RETURN_IF_ERROR(_reader->bloom_filter(predicates, row_ranges));
+    RETURN_IF_ERROR(_reader->bloom_filter(_opts.stats, predicates, row_ranges));
     return Status::OK();
 }
 

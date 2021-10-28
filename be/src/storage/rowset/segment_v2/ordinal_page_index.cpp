@@ -27,6 +27,8 @@
 #include "storage/key_coder.h"
 #include "storage/rowset/segment_v2/page_handle.h"
 #include "storage/rowset/segment_v2/page_io.h"
+#include "util/block_compression.h"
+#include "util/runtime_profile.h"
 
 namespace starrocks::segment_v2 {
 
@@ -39,7 +41,8 @@ void OrdinalIndexWriter::append_entry(ordinal_t ordinal, const PagePointer& data
 
 Status OrdinalIndexWriter::finish(fs::WritableBlock* wblock, ColumnIndexMetaPB* meta) {
     meta->set_type(ORDINAL_INDEX);
-    BTreeMetaPB* root_page_meta = meta->mutable_ordinal_index()->mutable_root_page();
+    OrdinalIndexPB* ordinal_index = meta->mutable_ordinal_index();
+    BTreeMetaPB* root_page_meta = ordinal_index->mutable_root_page();
 
     // NOTE: It is possible that the count is zero.
     if (_page_builder->count() <= 1) {
@@ -51,17 +54,27 @@ Status OrdinalIndexWriter::finish(fs::WritableBlock* wblock, ColumnIndexMetaPB* 
         PageFooterPB page_footer;
         _page_builder->finish(&page_body, &page_footer);
 
+        const BlockCompressionCodec* codec = nullptr;
+        CompressionTypePB type = CompressionTypePB::LZ4;
+        Status status = get_block_compression_codec(type, &codec);
+        if (!status.ok()) {
+            LOG(ERROR) << "get codec failed, fail to encode null flags";
+            return Status::NotFound("can not find lz4 compression");
+        }
+
         // write index page (currently it's not compressed)
         PagePointer pp;
-        RETURN_IF_ERROR(PageIO::write_page(wblock, {page_body.slice()}, page_footer, &pp));
+        RETURN_IF_ERROR(PageIO::compress_and_write_page(codec, 0.01, wblock, {page_body.slice()}, page_footer, &pp));
+        // RETURN_IF_ERROR(PageIO::write_page(wblock, {page_body.slice()}, page_footer, &pp));
 
         root_page_meta->set_is_root_data_page(false);
         pp.to_proto(root_page_meta->mutable_root_page());
+        ordinal_index->set_version(1);
     }
     return Status::OK();
 }
 
-Status OrdinalIndexReader::load(fs::BlockManager* block_mgr, const std::string& filename,
+Status OrdinalIndexReader::load(OlapReaderStatistics* stats, fs::BlockManager* block_mgr, const std::string& filename,
                                 const OrdinalIndexPB* index_meta, ordinal_t num_values, bool use_page_cache,
                                 bool kept_in_memory) {
     if (index_meta->root_page().is_root_data_page()) {
@@ -72,16 +85,27 @@ Status OrdinalIndexReader::load(fs::BlockManager* block_mgr, const std::string& 
         _pages.emplace_back(index_meta->root_page().root_page());
         return Status::OK();
     }
+    uint32_t version = index_meta->has_version() ? index_meta->version() : 0;
     // need to read index page
     std::unique_ptr<fs::ReadableBlock> rblock;
     RETURN_IF_ERROR(block_mgr->open_block(filename, &rblock));
 
+    _index_size = index_meta->root_page().root_page().size();
     PageReadOptions opts;
     opts.rblock = rblock.get();
     opts.page_pointer = PagePointer(index_meta->root_page().root_page());
     opts.codec = nullptr; // ordinal index page uses NO_COMPRESSION right now
-    OlapReaderStatistics tmp_stats;
-    opts.stats = &tmp_stats;
+    if (version == 1) {
+        const BlockCompressionCodec* codec = nullptr;
+        CompressionTypePB type = CompressionTypePB::LZ4;
+        Status status = get_block_compression_codec(type, &codec);
+        if (!status.ok()) {
+            LOG(ERROR) << "get codec failed, fail to encode null flags";
+            return Status::NotFound("can not find lz4 compression");
+        }
+        opts.codec = codec;
+    }
+    opts.stats = stats;
     opts.use_page_cache = use_page_cache;
     opts.kept_in_memory = kept_in_memory;
 
@@ -89,7 +113,11 @@ Status OrdinalIndexReader::load(fs::BlockManager* block_mgr, const std::string& 
     PageHandle page_handle;
     Slice body;
     PageFooterPB footer;
-    RETURN_IF_ERROR(PageIO::read_and_decompress_page(opts, &page_handle, &body, &footer));
+    {
+        SCOPED_RAW_TIMER(&stats->ordinal_index_decompress_time);
+        RETURN_IF_ERROR(PageIO::read_and_decompress_page(opts, &page_handle, &body, &footer));
+    }
+    
 
     // parse and save all (ordinal, pp) from index page
     IndexPageReader reader;

@@ -633,6 +633,8 @@ CONF_Int16(bitmap_serialize_version, "1");
 // schema change vectorized
 CONF_Bool(enable_schema_change_vectorized, "false");
 
+CONF_mInt32(default_ordinal_page_version, "0");
+
 } // namespace config
 
 } // namespace starrocks

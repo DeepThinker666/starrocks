@@ -227,6 +227,7 @@ message OrdinalIndexPB {
     // required: the root page can be data page if there is only one data page,
     // or the only index page if there is more than one data pages.
     optional BTreeMetaPB root_page = 1;
+    optional uint32 version = 2;
 }
 
 message ZoneMapIndexPB {
