@@ -41,6 +41,8 @@
 #include "storage/rowset/segment_v2/ordinal_page_index.h" // for OrdinalPageIndexIterator
 #include "storage/rowset/segment_v2/page_handle.h"
 #include "storage/rowset/segment_v2/zone_map_index.h"
+#include "storage/rowset/segment_v2/input_stream.h"
+#include "storage/rowset/segment_v2/page_io.h"
 #include "storage/vectorized/range.h"
 #include "util/once.h"
 
@@ -107,6 +109,7 @@ struct ColumnIteratorOptions {
 
     ReaderType reader_type = READER_QUERY;
     int chunk_size = DEFAULT_CHUNK_SIZE;
+    InputStream* input_stream;
 };
 
 // There will be concurrent users to read the same column. So
@@ -134,6 +137,9 @@ public:
     // read a page from file into a page handle
     Status read_page(const ColumnIteratorOptions& iter_opts, const PagePointer& pp, PageHandle* handle,
                      Slice* page_body, PageFooterPB* footer);
+    
+    Status read_and_parse_data_page_from_stream(PageReadOptions opts, Slice* compressed_data, PageFooterPB* footer, uint32_t* footer_size);
+    Status read_data_page(const ColumnIteratorOptions& iter_opts, const PagePointer& pp, PageHandle* handle, Slice* page_body, PageFooterPB* footer);
 
     bool is_nullable() const { return _is_nullable; }
 
@@ -194,6 +200,10 @@ public:
     Status load_zonemap_index(OlapReaderStatistics* stats, bool use_page_cache, bool kept_in_memory);
     Status load_bitmap_index(OlapReaderStatistics* stats, bool use_page_cache, bool kept_in_memory);
     Status load_bloomfilter_index(OlapReaderStatistics* stats, bool use_page_cache, bool kept_in_memory);
+
+    OrdinalIndexReader* ordinal_index() {
+        return _ordinal_index.get();
+    }
 
 private:
     ColumnReader(MemTracker* mem_tracker, const ColumnReaderOptions& opts, const ColumnMetaPB& meta, uint64_t num_rows,
@@ -277,6 +287,11 @@ public:
 
     virtual Status init(const ColumnIteratorOptions& opts) {
         _opts = opts;
+        return Status::OK();
+    }
+
+    // should consider different column type
+    virtual Status init_input_stream(fs::ReadableBlock* rblock, vectorized::SparseRangeIterator range_iter) {
         return Status::OK();
     }
 
@@ -377,6 +392,8 @@ public:
     ~FileColumnIterator() override;
 
     Status init(const ColumnIteratorOptions& opts) override;
+
+    Status init_input_stream(fs::ReadableBlock* rblock, vectorized::SparseRangeIterator range_iter) override;
 
     Status seek_to_first() override;
 
@@ -501,6 +518,7 @@ private:
     int64_t _element_ordinal = 0;
 
     vectorized::UInt32Column _array_size;
+    std::unique_ptr<InputStream> _input_stream;
 };
 
 class ArrayFileColumnIterator final : public ColumnIterator {
@@ -511,6 +529,8 @@ public:
     ~ArrayFileColumnIterator() override = default;
 
     Status init(const ColumnIteratorOptions& opts) override;
+
+    // Status init_input_stream(fs::ReadableBlock* rblock, vectorized::SparseRangeIterator range_iter) override;
 
     Status next_batch(size_t* n, ColumnBlockView* dst, bool* has_null) override;
 

@@ -105,6 +105,7 @@ add_library(Olap STATIC
     rowset/segment_v2/bloom_filter.cpp
     rowset/segment_v2/parsed_page.cpp
     rowset/segment_v2/zone_map_index.cpp
+    rowset/segment_v2/input_stream.cpp
     rowset/vectorized/rowset_writer_adapter.cpp
     rowset/vectorized/segment_chunk_iterator_adapter.cpp
     rowset/vectorized/segment_iterator.cpp

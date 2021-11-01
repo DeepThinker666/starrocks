@@ -48,6 +48,8 @@
 #include "storage/vectorized/column_predicate.h"
 #include "util/block_compression.h"
 #include "util/rle_encoding.h" // for RleDecoder
+#include "storage/rowset/segment_v2/input_stream.h"
+#include "util/crc32c.h"
 
 namespace starrocks::segment_v2 {
 
@@ -165,6 +167,81 @@ Status ColumnReader::read_page(const ColumnIteratorOptions& iter_opts, const Pag
     opts.kept_in_memory = _opts.kept_in_memory;
 
     return PageIO::read_and_decompress_page(opts, handle, page_body, footer);
+}
+
+Status ColumnReader::read_and_parse_data_page_from_stream(PageReadOptions opts, Slice* compressed_data, PageFooterPB* footer, uint32_t* footer_size) {
+    opts.stats->total_pages_num++;
+    // every page contains 4 bytes footer length and 4 bytes checksum
+    const uint32_t page_size = opts.page_pointer.size;
+    if (page_size < 8) {
+        return Status::Corruption(strings::Substitute("Bad page: too small size ($0)", page_size));
+    }
+
+    // hold compressed page at first, reset to decompressed page later
+    // Allocate APPEND_OVERFLOW_MAX_SIZE more bytes to make append_strings_overflow work
+    std::unique_ptr<char[]> page(new char[page_size + vectorized::Column::APPEND_OVERFLOW_MAX_SIZE]);
+    Slice page_slice(page.get(), page_size);
+    {
+        SCOPED_RAW_TIMER(&opts.stats->io_ns);
+        SCOPED_RAW_TIMER(&opts.stats->read_page_io_time);
+        RETURN_IF_ERROR(opts.input_stream->read(page_slice));
+        opts.stats->compressed_bytes_read += page_size;
+    }
+    compressed_data->data = page_slice.data;
+    compressed_data->size = page_slice.size;
+    if (opts.verify_checksum) {
+        SCOPED_RAW_TIMER(&opts.stats->page_checksum_time);
+        uint32_t expect = decode_fixed32_le((uint8_t*)page_slice.data + page_slice.size - 4);
+        uint32_t actual = crc32c::Value(page_slice.data, page_slice.size - 4);
+        if (expect != actual) {
+            return Status::Corruption(
+                    strings::Substitute("Bad page: checksum mismatch (actual=$0 vs expect=$1)", actual, expect));
+        }
+    }
+
+    // remove checksum suffix
+    page_slice.size -= 4;
+    // parse and set footer
+    *footer_size = decode_fixed32_le((uint8_t*)page_slice.data + page_slice.size - 4);
+    {
+        SCOPED_RAW_TIMER(&opts.stats->parse_page_footer_time);
+        if (!footer->ParseFromArray(page_slice.data + page_slice.size - 4 - *footer_size, *footer_size)) {
+            return Status::Corruption("Bad page: invalid footer");
+        }
+    }
+    page.release();
+    return Status::OK();
+}
+
+Status ColumnReader::read_data_page(const ColumnIteratorOptions& iter_opts, const PagePointer& pp, PageHandle* handle,
+                               Slice* page_body, PageFooterPB* footer) {
+    iter_opts.sanity_check();
+
+    PageReadOptions opts;
+    opts.rblock = iter_opts.rblock;
+    opts.page_pointer = pp;
+    opts.codec = _compress_codec;
+    opts.stats = iter_opts.stats;
+    opts.verify_checksum = _opts.verify_checksum;
+    opts.use_page_cache = iter_opts.use_page_cache;
+    opts.kept_in_memory = _opts.kept_in_memory;
+    opts.input_stream = iter_opts.input_stream;
+
+    // read page from input stream
+    // 这个需要进行内存控制，内存的分配和释放
+    
+    Slice compressed_data;
+    uint32_t footer_size;
+    RETURN_IF_ERROR(read_and_parse_data_page_from_stream(opts, &compressed_data, footer, &footer_size));
+    uint32_t body_size = compressed_data.get_size() - footer_size - 4;
+    *page_body = Slice(compressed_data.data, body_size);
+    if (body_size != footer->uncompressed_size()) {
+        RETURN_IF_ERROR(PageIO::decompress_page(&compressed_data, body_size, footer_size, opts, handle, page_body, footer));
+    }
+
+    // decompress the page
+    // return PageIO::read_and_decompress_page(opts, handle, page_body, footer);
+    return Status::OK();
 }
 
 Status ColumnReader::get_row_ranges_by_zone_map(OlapReaderStatistics* stats, CondColumn* cond_column, CondColumn* delete_condition,
@@ -769,6 +846,14 @@ Status FileColumnIterator::init(const ColumnIteratorOptions& opts) {
     return Status::OK();
 }
 
+Status FileColumnIterator::init_input_stream(fs::ReadableBlock* rblock, vectorized::SparseRangeIterator range_iter) {
+    _input_stream = std::make_unique<InputStream>(rblock);
+    // get the ordinal index
+    RETURN_IF_ERROR(_reader->load_ordinal_index(_opts.stats, !config::disable_storage_page_cache, false));
+    auto st = _input_stream->init(range_iter, _reader->ordinal_index()->begin());
+    return st;
+}
+
 Status FileColumnIterator::seek_to_first() {
     RETURN_IF_ERROR(_reader->seek_to_first(_opts.stats, &_page_iter));
     RETURN_IF_ERROR(_read_data_page(_page_iter));
@@ -931,7 +1016,9 @@ Status FileColumnIterator::_read_data_page(const OrdinalPageIndexIterator& iter)
     PageFooterPB footer;
     {
         SCOPED_RAW_TIMER(&_opts.stats->read_and_decompress_page_time);
-        RETURN_IF_ERROR(_reader->read_page(_opts, iter.page(), &handle, &page_body, &footer));
+        // RETURN_IF_ERROR(_reader->read_page(_opts, iter.page(), &handle, &page_body, &footer));
+        // read from input stream
+        RETURN_IF_ERROR(_reader->read_data_page(_opts, iter.page(), &handle, &page_body, &footer));
     }
 
     {

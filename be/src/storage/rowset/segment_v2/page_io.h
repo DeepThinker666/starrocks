@@ -28,6 +28,7 @@
 #include "gen_cpp/segment_v2.pb.h"
 #include "storage/rowset/segment_v2/page_handle.h"
 #include "storage/rowset/segment_v2/page_pointer.h"
+#include "storage/rowset/segment_v2/input_stream.h"
 #include "util/slice.h"
 
 namespace starrocks {
@@ -58,6 +59,8 @@ struct PageReadOptions {
     // if true, use DURABLE CachePriority in page cache
     // currently used for in memory olap table
     bool kept_in_memory = false;
+
+    InputStream* input_stream;
 
     void sanity_check() const {
         CHECK_NOTNULL(rblock);
@@ -107,6 +110,9 @@ public:
     //     `footer' stores the page footer.
     static Status read_and_decompress_page(const PageReadOptions& opts, PageHandle* handle, Slice* body,
                                            PageFooterPB* footer);
+
+    static Status decompress_page(Slice* page_slice, uint32_t body_size, uint32_t footer_size, const PageReadOptions& opts, PageHandle* handle, Slice* body,
+                                        PageFooterPB* footer);
 };
 
 } // namespace segment_v2

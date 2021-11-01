@@ -211,4 +211,35 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle*
     return Status::OK();
 }
 
+Status PageIO::decompress_page(Slice* page_slice, uint32_t body_size, uint32_t footer_size, const PageReadOptions& opts, PageHandle* handle, Slice* body,
+                                        PageFooterPB* footer) {
+    if (opts.codec == nullptr) {
+        return Status::Corruption("Bad page: page is compressed but codec is NO_COMPRESSION");
+    }
+    SCOPED_RAW_TIMER(&opts.stats->decompress_ns);
+    // Allocate APPEND_OVERFLOW_MAX_SIZE more bytes to make append_strings_overflow work
+    std::unique_ptr<char[]> decompressed_page(
+            new char[footer->uncompressed_size() + footer_size + 4 + vectorized::Column::APPEND_OVERFLOW_MAX_SIZE]);
+
+    // decompress page body
+    Slice compressed_body(page_slice->data, body_size);
+    Slice decompressed_body(decompressed_page.get(), footer->uncompressed_size());
+    RETURN_IF_ERROR(opts.codec->decompress(compressed_body, &decompressed_body));
+    if (decompressed_body.size != footer->uncompressed_size()) {
+        return Status::Corruption(
+                strings::Substitute("Bad page: record uncompressed size=$0 vs real decompressed size=$1",
+                                    footer->uncompressed_size(), decompressed_body.size));
+    }
+    // append footer and footer size
+    memcpy(decompressed_body.data + decompressed_body.size, page_slice->data + body_size, footer_size + 4);
+    // free memory of compressed page
+    delete[] page_slice->data;
+    *page_slice = Slice(decompressed_page.get(), footer->uncompressed_size() + footer_size + 4);
+    opts.stats->uncompressed_bytes_read += page_slice->size;
+    *body = Slice(page_slice->data, page_slice->size - 4 - footer_size);
+    *handle = PageHandle(*page_slice);
+    decompressed_page.release();
+    return Status::OK();
+}
+
 } // namespace starrocks::segment_v2

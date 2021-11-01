@@ -471,9 +471,20 @@ Status SegmentIterator::_init() {
         RETURN_IF_ERROR(_get_row_ranges_by_zone_map());
         RETURN_IF_ERROR(_get_row_ranges_by_bloom_filter());
     }
+    
     {
         SCOPED_RAW_TIMER(&_opts.stats->rewrite_predicate_time);
         _rewrite_predicates();
+    }
+    _range_iter = _scan_range.new_iterator();
+    {
+        // update init column stream
+        for (int i = 0; i < _column_iterators.size(); ++i) {
+            LOG(INFO) << "column iterator size:" << _column_iterators.size() << ", i:" << i << ", column iter i:" << _column_iterators[i];
+            if (_column_iterators[i]) {
+                RETURN_IF_ERROR(_column_iterators[i]->init_input_stream(_rblock.get(), _range_iter));
+            }
+        }
     }
     
     {
@@ -481,13 +492,15 @@ Status SegmentIterator::_init() {
         RETURN_IF_ERROR(_init_context());
     }
     _init_column_predicates();
-    _range_iter = _scan_range.new_iterator();
+    
 
     return Status::OK();
 }
 
 Status SegmentIterator::_init_column_iterators(const Schema& schema) {
     DCHECK_EQ(_predicate_columns, _opts.predicates.size());
+
+    LOG(INFO) << "_init_column_iterators, schema:" << schema;
 
     const size_t n = 1 + ChunkHelper::max_column_id(schema);
     _column_iterators.resize(n, nullptr);

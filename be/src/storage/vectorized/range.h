@@ -98,6 +98,8 @@ public:
     // `has_more` must be checked before calling this method.
     Range next(size_t size);
 
+    Range next();
+
     size_t covered_ranges(size_t size) const;
 
     size_t convert_to_bitmap(uint8_t* bitmap, size_t max_size) const;
@@ -301,6 +303,10 @@ inline Range SparseRangeIterator::next(size_t size) {
         }
     }
     return ret;
+}
+
+inline Range SparseRangeIterator::next() {
+    return _range->_ranges[_index++];
 }
 
 inline size_t SparseRangeIterator::covered_ranges(size_t size) const {

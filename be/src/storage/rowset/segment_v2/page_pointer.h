@@ -73,6 +73,12 @@ public:
     bool operator==(const PagePointer& other) const { return offset == other.offset && size == other.size; }
 
     bool operator!=(const PagePointer& other) const { return !(*this == other); }
+
+    std::string to_string() const {
+        std::stringstream ss;
+        ss << "offset:" << offset << ", size:" << size;
+        return ss.str();
+    }
 };
 
 } // namespace segment_v2
