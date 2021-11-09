@@ -60,7 +60,7 @@ struct PageReadOptions {
     // currently used for in memory olap table
     bool kept_in_memory = false;
 
-    InputStream* input_stream;
+    InputStream* input_stream = nullptr;
 
     void sanity_check() const {
         CHECK_NOTNULL(rblock);

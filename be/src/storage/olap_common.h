@@ -477,6 +477,20 @@ struct OlapReaderStatistics {
 
     int64_t switch_context_time = 0;
     int64_t ordinal_index_decompress_time = 0;
+
+    int64_t io_read_directly_count = 0;
+    int64_t io_read_buffered_count = 0;
+    int64_t io_read_from_stream_count = 0;
+
+    int64_t io_read_from_stream_time = 0;
+    int64_t io_read_directly_time = 0;
+    int64_t io_read_ahead_time = 0;
+
+    int64_t seek_load_data_page_time = 0;
+    int64_t seek_page_pointer_time = 0;
+    int64_t seek_at_or_before_load_ordinal_time = 0;
+    int64_t read_dict_time = 0;
+    int64_t load_dict_page_total_time = 0;
 };
 
 typedef uint32_t ColumnId;

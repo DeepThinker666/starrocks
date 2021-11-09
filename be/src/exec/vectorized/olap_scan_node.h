@@ -239,6 +239,21 @@ private:
 
     RuntimeProfile::Counter* _switch_context_time = nullptr;
     RuntimeProfile::Counter* _ordinal_index_decompress_time = nullptr;
+
+    RuntimeProfile::Counter* _io_read_directly_count = nullptr;
+    RuntimeProfile::Counter* _io_read_buffered_count = nullptr;
+    RuntimeProfile::Counter* _io_read_from_stream_count = nullptr;
+
+    RuntimeProfile::Counter* _io_read_directly_time = nullptr;
+    RuntimeProfile::Counter* _io_read_ahead_time = nullptr;
+    RuntimeProfile::Counter* _io_read_from_stream_time = nullptr;
+
+    RuntimeProfile::Counter* _seek_load_data_page_time = nullptr;
+    RuntimeProfile::Counter* _seek_page_pointer_time = nullptr;
+    RuntimeProfile::Counter* _seek_at_or_before_load_ordinal_time = nullptr;
+
+    RuntimeProfile::Counter* _read_dict_time = nullptr;
+    RuntimeProfile::Counter* _load_dict_page_total_time = nullptr;
 };
 
 } // namespace starrocks::vectorized

@@ -95,6 +95,7 @@ Status OrdinalIndexReader::load(OlapReaderStatistics* stats, fs::BlockManager* b
     opts.rblock = rblock.get();
     opts.page_pointer = PagePointer(index_meta->root_page().root_page());
     opts.codec = nullptr; // ordinal index page uses NO_COMPRESSION right now
+    rblock->read_ahead(opts.page_pointer.offset, opts.page_pointer.size);
     if (version == 1) {
         const BlockCompressionCodec* codec = nullptr;
         CompressionTypePB type = CompressionTypePB::LZ4;

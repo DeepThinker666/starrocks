@@ -184,11 +184,9 @@ Status ColumnReader::read_and_parse_data_page_from_stream(PageReadOptions opts, 
     {
         SCOPED_RAW_TIMER(&opts.stats->io_ns);
         SCOPED_RAW_TIMER(&opts.stats->read_page_io_time);
-        RETURN_IF_ERROR(opts.input_stream->read(page_slice));
+        RETURN_IF_ERROR(opts.input_stream->read(opts.page_pointer, page_slice));
         opts.stats->compressed_bytes_read += page_size;
     }
-    compressed_data->data = page_slice.data;
-    compressed_data->size = page_slice.size;
     if (opts.verify_checksum) {
         SCOPED_RAW_TIMER(&opts.stats->page_checksum_time);
         uint32_t expect = decode_fixed32_le((uint8_t*)page_slice.data + page_slice.size - 4);
@@ -209,6 +207,8 @@ Status ColumnReader::read_and_parse_data_page_from_stream(PageReadOptions opts, 
             return Status::Corruption("Bad page: invalid footer");
         }
     }
+    compressed_data->data = page_slice.data;
+    compressed_data->size = page_slice.size;
     page.release();
     return Status::OK();
 }
@@ -516,7 +516,11 @@ Status ColumnReader::seek_to_first(OlapReaderStatistics* stats, OrdinalPageIndex
 }
 
 Status ColumnReader::seek_at_or_before(OlapReaderStatistics* stats, ordinal_t ordinal, OrdinalPageIndexIterator* iter) {
-    RETURN_IF_ERROR(load_ordinal_index(stats, !config::disable_storage_page_cache, false));
+    {
+        SCOPED_RAW_TIMER(&stats->seek_at_or_before_load_ordinal_time);
+        RETURN_IF_ERROR(load_ordinal_index(stats, !config::disable_storage_page_cache, false));
+    }
+    
     *iter = _ordinal_index->seek_at_or_before(ordinal);
     if (!iter->valid()) {
         return Status::NotFound(strings::Substitute("Failed to seek to ordinal $0, ", ordinal));
@@ -531,6 +535,7 @@ Status ColumnReader::zone_map_filter(OlapReaderStatistics* stats, const std::vec
     RETURN_IF_ERROR(load_zonemap_index(stats, !config::disable_storage_page_cache, false));
     std::vector<uint32_t> page_indexes;
     RETURN_IF_ERROR(_zone_map_filter(predicates, del_predicate, del_partial_filtered_pages, &page_indexes));
+    RETURN_IF_ERROR(load_ordinal_index(stats, !config::disable_storage_page_cache, false));
     RETURN_IF_ERROR(_calculate_row_ranges(page_indexes, row_ranges));
     return Status::OK();
 }
@@ -797,6 +802,7 @@ FileColumnIterator::~FileColumnIterator() = default;
 
 Status FileColumnIterator::init(const ColumnIteratorOptions& opts) {
     _opts = opts;
+    init_input_stream(opts.rblock, opts.stats);
     /*
     {
         SCOPED_RAW_TIMER(&_opts.stats->load_index_time);
@@ -846,13 +852,16 @@ Status FileColumnIterator::init(const ColumnIteratorOptions& opts) {
     return Status::OK();
 }
 
-Status FileColumnIterator::init_input_stream(fs::ReadableBlock* rblock, vectorized::SparseRangeIterator range_iter) {
+/*
+Status FileColumnIterator::init_input_stream(fs::ReadableBlock* rblock) {
     _input_stream = std::make_unique<InputStream>(rblock);
     // get the ordinal index
-    RETURN_IF_ERROR(_reader->load_ordinal_index(_opts.stats, !config::disable_storage_page_cache, false));
-    auto st = _input_stream->init(range_iter, _reader->ordinal_index()->begin());
+    // RETURN_IF_ERROR(_reader->load_ordinal_index(_opts.stats, !config::disable_storage_page_cache, false));
+    auto st = _input_stream->init();
+    _opts.input_stream = _input_stream.get();
     return st;
 }
+*/
 
 Status FileColumnIterator::seek_to_first() {
     RETURN_IF_ERROR(_reader->seek_to_first(_opts.stats, &_page_iter));
@@ -866,8 +875,15 @@ Status FileColumnIterator::seek_to_first() {
 Status FileColumnIterator::seek_to_ordinal(ordinal_t ord) {
     // if current page contains this row, we don't need to seek
     if (_page == nullptr || !_page->contains(ord)) {
-        RETURN_IF_ERROR(_reader->seek_at_or_before(_opts.stats, ord, &_page_iter));
-        RETURN_IF_ERROR(_read_data_page(_page_iter));
+        {
+            SCOPED_RAW_TIMER(&_opts.stats->seek_page_pointer_time);
+            RETURN_IF_ERROR(_reader->seek_at_or_before(_opts.stats, ord, &_page_iter));
+        }
+        
+        {
+            SCOPED_RAW_TIMER(&_opts.stats->seek_load_data_page_time);
+            RETURN_IF_ERROR(_read_data_page(_page_iter));
+        }
     }
     _seek_to_pos_in_page(_page.get(), ord - _page->first_ordinal());
     _current_ordinal = ord;
@@ -981,12 +997,18 @@ Status FileColumnIterator::_load_next_page(bool* eos) {
 }
 
 Status FileColumnIterator::_load_dict_page() {
+    SCOPED_RAW_TIMER(&_opts.stats->load_dict_page_total_time);
     DCHECK(_dict_decoder == nullptr);
     // read dictionary page
     Slice dict_data;
     PageFooterPB dict_footer;
-    RETURN_IF_ERROR(
+    {
+        SCOPED_RAW_TIMER(&_opts.stats->read_dict_time);
+        // _opts.rblock->read_ahead(_reader->get_dict_page_pointer().offset, _reader->get_dict_page_pointer().size);
+        RETURN_IF_ERROR(
             _reader->read_page(_opts, _reader->get_dict_page_pointer(), &_dict_page_handle, &dict_data, &dict_footer));
+    }
+
     // ignore dict_footer.dict_page_footer().encoding() due to only
     // PLAIN_ENCODING is supported for dict page right now
     if (_reader->column_type() == OLAP_FIELD_TYPE_CHAR) {

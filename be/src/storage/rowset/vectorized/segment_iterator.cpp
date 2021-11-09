@@ -26,6 +26,7 @@
 #include "storage/rowset/segment_v2/common.h"
 #include "storage/rowset/segment_v2/row_ranges.h"
 #include "storage/rowset/segment_v2/segment.h"
+#include "storage/rowset/segment_v2/encoding_info.h"
 #include "storage/rowset/vectorized/rowid_column_iterator.h"
 #include "storage/rowset/vectorized/segment_options.h"
 #include "storage/storage_engine.h"
@@ -476,23 +477,13 @@ Status SegmentIterator::_init() {
         SCOPED_RAW_TIMER(&_opts.stats->rewrite_predicate_time);
         _rewrite_predicates();
     }
-    _range_iter = _scan_range.new_iterator();
-    {
-        // update init column stream
-        for (int i = 0; i < _column_iterators.size(); ++i) {
-            LOG(INFO) << "column iterator size:" << _column_iterators.size() << ", i:" << i << ", column iter i:" << _column_iterators[i];
-            if (_column_iterators[i]) {
-                RETURN_IF_ERROR(_column_iterators[i]->init_input_stream(_rblock.get(), _range_iter));
-            }
-        }
-    }
     
     {
         SCOPED_RAW_TIMER(&_opts.stats->init_context_time);
         RETURN_IF_ERROR(_init_context());
     }
     _init_column_predicates();
-    
+    _range_iter = _scan_range.new_iterator();
 
     return Status::OK();
 }
@@ -500,14 +491,55 @@ Status SegmentIterator::_init() {
 Status SegmentIterator::_init_column_iterators(const Schema& schema) {
     DCHECK_EQ(_predicate_columns, _opts.predicates.size());
 
-    LOG(INFO) << "_init_column_iterators, schema:" << schema;
-
     const size_t n = 1 + ChunkHelper::max_column_id(schema);
     _column_iterators.resize(n, nullptr);
     _column_decoders.resize(n);
 
     bool has_predicate = !_opts.predicates.empty();
     _predicate_need_rewrite.resize(n, false);
+
+    // 预读取dict
+    // 如果连续的column，会一次性读取
+    /*
+    LOG(INFO) << "start to read ahead dict. schema:" << schema;
+    for (int i = 0; i < schema.fields().size() - 1;) {
+        const FieldPtr& f = schema.fields()[i];
+        const ColumnId cid = f->id();
+        ColumnReader* reader = _segment->column(cid);
+        if (reader && reader->encoding_info()->encoding() == DICT_ENCODING) {
+            PagePointer dict_page = _segment->column(cid)->get_dict_page_pointer();
+            uint64_t offset = dict_page.offset;
+            size_t length = dict_page.size;
+            int k = i;
+            int j = i + 1;
+            while (j < schema.fields().size()) {
+                const FieldPtr& nf = schema.fields()[j];
+                const ColumnId ncid = nf->id();
+                ColumnReader* nreader = _segment->column(ncid);
+                if (nreader && nreader->encoding_info()->encoding() == DICT_ENCODING) {
+                    PagePointer ndict_page = _segment->column(ncid)->get_dict_page_pointer();
+                    uint64_t noffset = ndict_page.offset;
+                    size_t nlength = ndict_page.size;
+                    if (noffset != offset + length) {
+                        break;
+                    } else {
+                        length = length + nlength;
+                        i = j;
+                        LOG(INFO) << "column i:" << k << ", column j:" << j << " dict is continuous.";
+                    }
+                }
+                j++;
+            }
+            auto st = _rblock->read_ahead(offset, length);
+            if (!st.ok()) {
+                LOG(WARNING) << "read ahead dict page failed, msg:" << st.to_string();
+            }
+            LOG(INFO) << "read ahead dict, column id:" << i << ", field i:" << f->to_string() << ", j:" << j;
+        }
+        ++i;
+    }
+    */
+
     for (const FieldPtr& f : schema.fields()) {
         const ColumnId cid = f->id();
         if (_column_iterators[cid] == nullptr) {
@@ -535,6 +567,7 @@ Status SegmentIterator::_init_column_iterators(const Schema& schema) {
             iter_opts.rblock = _rblock.get();
             iter_opts.check_dict_encoding = check_dict_enc;
             RETURN_IF_ERROR(_column_iterators[cid]->init(iter_opts));
+            //RETURN_IF_ERROR(_column_iterators[cid]->init_input_stream(_rblock.get()));            
 
             // we have a global dict map but column was not encode by dict
             if (_opts.global_dictmaps->count(cid) && !_column_iterators[cid]->all_page_dict_encoded()) {
@@ -721,7 +754,7 @@ Status SegmentIterator::_seek_columns(const Schema& schema, rowid_t pos) {
     _opts.stats->block_seek_num++;
     SCOPED_RAW_TIMER(&_opts.stats->block_seek_ns);
     for (const FieldPtr& f : schema.fields()) {
-        _opts.stats->column_seek_num++;
+        //_opts.stats->column_seek_num++;
         RETURN_IF_ERROR(_column_iterators[f->id()]->seek_to_ordinal(pos));
     }
     return Status::OK();

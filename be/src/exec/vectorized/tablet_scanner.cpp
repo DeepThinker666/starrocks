@@ -360,6 +360,21 @@ void TabletScanner::update_counter() {
     COUNTER_UPDATE(_parent->_switch_context_time, _reader->stats().switch_context_time);
     COUNTER_UPDATE(_parent->_ordinal_index_decompress_time, _reader->stats().ordinal_index_decompress_time);
 
+    COUNTER_UPDATE(_parent->_io_read_buffered_count, _reader->stats().io_read_buffered_count);
+    COUNTER_UPDATE(_parent->_io_read_directly_count, _reader->stats().io_read_directly_count);
+    COUNTER_UPDATE(_parent->_io_read_from_stream_count, _reader->stats().io_read_from_stream_count);
+
+    COUNTER_UPDATE(_parent->_io_read_directly_time, _reader->stats().io_read_directly_time);
+    COUNTER_UPDATE(_parent->_io_read_directly_time, _reader->stats().io_read_ahead_time);
+    COUNTER_UPDATE(_parent->_io_read_from_stream_time, _reader->stats().io_read_from_stream_time);
+
+    COUNTER_UPDATE(_parent->_seek_load_data_page_time, _reader->stats().seek_load_data_page_time);
+    COUNTER_UPDATE(_parent->_seek_page_pointer_time, _reader->stats().seek_page_pointer_time);
+    COUNTER_UPDATE(_parent->_seek_at_or_before_load_ordinal_time, _reader->stats().seek_at_or_before_load_ordinal_time);
+
+    COUNTER_UPDATE(_parent->_read_dict_time, _reader->stats().read_dict_time);
+    COUNTER_UPDATE(_parent->_load_dict_page_total_time, _reader->stats().load_dict_page_total_time);
+
     StarRocksMetrics::instance()->query_scan_bytes.increment(_compressed_bytes_read);
     StarRocksMetrics::instance()->query_scan_rows.increment(_raw_rows_read);
 

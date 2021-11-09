@@ -109,7 +109,7 @@ struct ColumnIteratorOptions {
 
     ReaderType reader_type = READER_QUERY;
     int chunk_size = DEFAULT_CHUNK_SIZE;
-    InputStream* input_stream;
+    InputStream* input_stream = nullptr;
 };
 
 // There will be concurrent users to read the same column. So
@@ -287,12 +287,16 @@ public:
 
     virtual Status init(const ColumnIteratorOptions& opts) {
         _opts = opts;
+        init_input_stream(opts.rblock, opts.stats);
         return Status::OK();
     }
 
     // should consider different column type
-    virtual Status init_input_stream(fs::ReadableBlock* rblock, vectorized::SparseRangeIterator range_iter) {
-        return Status::OK();
+    virtual Status init_input_stream(fs::ReadableBlock* rblock, OlapReaderStatistics* stats) {
+        _input_stream = std::make_unique<InputStream>(rblock, stats);
+        auto st = _input_stream->init();
+        _opts.input_stream = _input_stream.get();
+        return st;
     }
 
     // Seek to the first entry in the column.
@@ -383,6 +387,7 @@ public:
 
 protected:
     ColumnIteratorOptions _opts;
+    std::unique_ptr<InputStream> _input_stream;
 };
 
 // for scalar type
@@ -392,8 +397,6 @@ public:
     ~FileColumnIterator() override;
 
     Status init(const ColumnIteratorOptions& opts) override;
-
-    Status init_input_stream(fs::ReadableBlock* rblock, vectorized::SparseRangeIterator range_iter) override;
 
     Status seek_to_first() override;
 
@@ -518,7 +521,6 @@ private:
     int64_t _element_ordinal = 0;
 
     vectorized::UInt32Column _array_size;
-    std::unique_ptr<InputStream> _input_stream;
 };
 
 class ArrayFileColumnIterator final : public ColumnIterator {
@@ -529,8 +531,6 @@ public:
     ~ArrayFileColumnIterator() override = default;
 
     Status init(const ColumnIteratorOptions& opts) override;
-
-    // Status init_input_stream(fs::ReadableBlock* rblock, vectorized::SparseRangeIterator range_iter) override;
 
     Status next_batch(size_t* n, ColumnBlockView* dst, bool* has_null) override;
 

@@ -62,7 +62,7 @@ public:
     ordinal_t corresponding_element_ordinal() const { return _corresponding_element_ordinal; }
 
     bool contains(ordinal_t ord) const {
-        static_assert(std::is_unsigned_v<ordinal_t>);
+        //static_assert(std::is_unsigned_v<ordinal_t>);
         // Branch-avoiding version of following check:
         //  return ord >= first_ordinal && ord < num_rows
         return ord - _first_ordinal < _num_rows;

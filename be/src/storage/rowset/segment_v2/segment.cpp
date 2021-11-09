@@ -231,6 +231,62 @@ Status Segment::_parse_footer(size_t* footer_length_hint) {
                                     actual_checksum, checksum));
     }
 
+    // collect all ordinal index meta
+    std::vector<const OrdinalIndexPB*> ordinal_indexes;
+    std::vector<PagePointerPB> dict_pointers;
+    for (uint32_t ordinal = 0; ordinal < _footer.columns().size(); ++ordinal) {
+        const auto& column_pb = _footer.columns(ordinal);
+        for (int i = 0; i < column_pb.indexes_size(); ++i) {
+            const auto& index_meta = column_pb.indexes(i);
+            if (index_meta.type() == ORDINAL_INDEX) {
+                ordinal_indexes.push_back(&index_meta.ordinal_index());
+            }
+        }
+        // get dict page pointer
+        if (column_pb.encoding() == DICT_ENCODING && column_pb.has_dict_page()) {
+            // rblock->read_ahead(column_pb.dict_page().offset(), column_pb.dict_page().size());
+            dict_pointers.push_back(column_pb.dict_page());
+        }
+    }
+    uint64_t ordinal_index_offset = 0;
+    size_t ordinal_index_length = 0;
+    for (int i = 0; i < ordinal_indexes.size(); ++i) {
+        const BTreeMetaPB& root_page = ordinal_indexes[i]->root_page();
+        if (!root_page.is_root_data_page()) {
+            ordinal_index_length += root_page.root_page().size();
+            if (i == 0) {
+                ordinal_index_offset = root_page.root_page().offset();
+            }
+        }
+    }
+    // LOG(INFO) << "read ahead ordinal index, offset:" << ordinal_index_offset << ", ordinal_index_length:" << ordinal_index_length;
+    auto st  = rblock->read_ahead(ordinal_index_offset, ordinal_index_length);
+    if (!st.ok()) {
+        LOG(WARNING) << "read ahead ordinal index failed, msg:" << st.to_string();
+    }
+
+    
+    uint64_t dict_page_offset = 0;
+    size_t dict_page_length = 0;
+    for (int i = 0; i < dict_pointers.size(); ++i) {
+        const PagePointerPB& pp = dict_pointers[i];
+        if (i == 0) {
+            dict_page_offset = pp.offset();
+        }
+        dict_page_length += pp.size();
+    }
+    // LOG(INFO) << "read ahead dict page. offset:" << dict_page_offset << ", length:" << dict_page_length;
+    /*
+    st  = rblock->read_ahead(dict_page_offset, dict_page_length);
+    if (!st.ok()) {
+        LOG(WARNING) << "read ahead dict pages failed, msg:" << st.to_string();
+    }
+    */
+   int ret = posix_fadvise64(rblock->file(), dict_page_offset, dict_page_length, POSIX_FADV_WILLNEED);
+   if (ret != 0) {
+       LOG(WARNING) << "advise64 failed, ret:" << ret << ", file:" << rblock->file() << ", dict_page_offset:" << dict_page_offset << ", dict_page_length:" << dict_page_length;
+   }
+
     // The memory usage obtained through SpaceUsedLong() is an estimate
     _mem_tracker->consume(static_cast<int64_t>(_footer.SpaceUsedLong()) -
                           static_cast<int64_t>(sizeof(SegmentFooterPB)));
@@ -287,7 +343,8 @@ Status Segment::_create_column_readers() {
         opts.storage_format_version = _footer.version();
         opts.kept_in_memory = _tablet_schema->is_in_memory();
         std::unique_ptr<ColumnReader> reader;
-        RETURN_IF_ERROR(ColumnReader::create(_mem_tracker, opts, _footer.columns(iter->second), _footer.num_rows(),
+        const ColumnMetaPB& column_meta_pb = _footer.columns(iter->second);
+        RETURN_IF_ERROR(ColumnReader::create(_mem_tracker, opts, column_meta_pb, _footer.num_rows(),
                                              _fname, &reader));
         _column_readers[ordinal] = std::move(reader);
     }

@@ -128,6 +128,10 @@ public:
         return _sk_index_decoder->num_items() - 1;
     }
 
+    ColumnReader* column(uint32_t cid) {
+        return _column_readers[cid].get();
+    }
+
     // only used by UT
     const SegmentFooterPB& footer() const { return _footer; }
 

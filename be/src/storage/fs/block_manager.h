@@ -165,6 +165,14 @@ public:
     // If an error was encountered, returns a non-OK status.
     virtual Status readv(uint64_t offset, const Slice* res, size_t res_cnt) const = 0;
 
+    virtual Status read_ahead(uint64_t offset, size_t count) const {
+        return Status::OK();
+    }
+
+    virtual int file() const {
+        return 0;
+    }
+
     // Returns the memory usage of this object including the object itself.
     // virtual size_t memory_footprint() const = 0;
 };

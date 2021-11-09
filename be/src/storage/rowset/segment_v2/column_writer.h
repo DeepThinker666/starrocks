@@ -110,6 +110,8 @@ public:
     // write all data into file
     virtual Status write_data() = 0;
 
+    virtual Status write_dict() = 0;
+
     virtual Status write_ordinal_index() = 0;
 
     virtual Status write_zone_map() = 0;
@@ -162,6 +164,7 @@ public:
     Status finish() override;
 
     Status write_data() override;
+    Status write_dict() override;
     Status write_ordinal_index() override;
     Status write_zone_map() override;
     Status write_bitmap_index() override;
@@ -253,6 +256,7 @@ public:
 
     Status finish() override;
     Status write_data() override;
+    Status write_dict() override;
     Status write_ordinal_index() override;
 
     Status finish_current_page() override;

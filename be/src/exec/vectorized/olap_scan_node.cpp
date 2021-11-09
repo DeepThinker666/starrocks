@@ -452,6 +452,21 @@ void OlapScanNode::_init_counter(RuntimeState* state) {
     _switch_context_time = ADD_CHILD_TIMER(_scan_profile, "SwitchContextTime", "SegmentRead");
     _ordinal_index_decompress_time = ADD_CHILD_TIMER(_scan_profile, "OrdinalIndexDecompressTime", "SegmentRead");
 
+    _io_read_directly_count = ADD_CHILD_COUNTER(_scan_profile, "IOReadDirectlyCount", TUnit::UNIT, "SegmentRead");
+    _io_read_buffered_count = ADD_CHILD_COUNTER(_scan_profile, "IOReadBufferedCount", TUnit::UNIT, "SegmentRead");
+    _io_read_from_stream_count = ADD_CHILD_COUNTER(_scan_profile, "IOReadFromStreamCount", TUnit::UNIT, "SegmentRead");
+
+    _io_read_directly_time = ADD_CHILD_TIMER(_scan_profile, "IOReadDirectlyTime", "SegmentRead");
+    _io_read_ahead_time = ADD_CHILD_TIMER(_scan_profile, "IOReadAheadTime", "SegmentRead");
+    _io_read_from_stream_time = ADD_CHILD_TIMER(_scan_profile, "IOReadFromStreamTime", "SegmentRead");
+
+    _seek_load_data_page_time = ADD_CHILD_TIMER(_scan_profile, "SeekLoadDataPageTime", "SegmentRead");
+    _seek_page_pointer_time = ADD_CHILD_TIMER(_scan_profile, "SeekPagePointerTime", "SegmentRead");
+    _seek_at_or_before_load_ordinal_time = ADD_CHILD_TIMER(_scan_profile, "SeekAtOrBeforeLoadOrdinalTime", "SegmentRead");
+
+    _read_dict_time = ADD_CHILD_TIMER(_scan_profile, "ReadDictTime", "SegmentRead");
+    _load_dict_page_total_time = ADD_CHILD_TIMER(_scan_profile, "LoadDictPageTotalTime", "SegmentRead");
+
     /// IOTime
     _io_timer = ADD_TIMER(_scan_profile, "IOTime");
 }

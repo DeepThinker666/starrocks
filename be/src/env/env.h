@@ -235,6 +235,10 @@ public:
     // Safe for concurrent use by multiple threads.
     virtual Status read_at(uint64_t offset, const Slice& result) const = 0;
 
+    virtual Status read_ahead(uint64_t offset, size_t count) const {
+        return Status::OK();
+    }
+
     // Reads up to the "results" aggregate size, based on each Slice's "size",
     // from the file starting at 'offset'. The Slices must point to already-allocated
     // buffers for the data to be written to.
@@ -253,6 +257,10 @@ public:
 
     // Return name of this file
     virtual const std::string& file_name() const = 0;
+
+    virtual int file() const {
+        return 0;
+    }
 };
 
 // A file abstraction for sequential writing.  The implementation

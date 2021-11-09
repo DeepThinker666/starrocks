@@ -1,58 +1,23 @@
 #include "storage/rowset/segment_v2/input_stream.h"
 
 #include "common/status.h"
-
+#include "util/runtime_profile.h"
+#include "gutil/strings/fastmem.h"
+#include <fcntl.h>
 namespace starrocks {
 
 namespace segment_v2 {
 
-Status InputStream::init(vectorized::SparseRangeIterator range_iter, OrdinalPageIndexIterator ord_iter) {
-    // 获取要读取的page id列表
-    while (range_iter.has_more()) {
-        vectorized::Range range = range_iter.next();
-        LOG(INFO) << "range:" << range.to_string();
-        while (ord_iter.valid()) {
-            vectorized::Range page_range(ord_iter.first_ordinal(), ord_iter.last_ordinal() + 1);
-            LOG(INFO) << "page range:" << page_range.to_string();
-            if (range.has_intersection(page_range)) {
-                LOG(INFO) << "add page id:" << ord_iter.page_index() << ", pp:" << ord_iter.page().to_string();
-                _page_ids.push_back(ord_iter.page_index());
-                _page_pointers.push_back(ord_iter.page());
-                /*
-            PageInfo page_info;
-            page_info.id = ord_iter.page_index();
-            page_info.index = _page_ids.size() - 1;
-            _pp_to_id[ord_iter.page] = page_info;
-            */
-            } else {
-                break;
-            }
-            ord_iter.next();
-        }
-        
-    }
-    _cur_pos = 0;
-    LOG(INFO) << "init input stream. cur pos:" << _cur_pos << ", page id size:" << _page_ids.size();
-    std::stringstream ss;
-    for (int i = 0; i < _page_ids.size(); ++i) {
-        ss << "i:" << i << ", page id:" << _page_ids[i] << ",";
-    }
-    LOG(INFO) << "page id list:" << ss.str();
-
-    // 从page pointer能够拿到连续的后面连续的范围
-    _is_range = true;
+Status InputStream::seek(const PagePointer& pp) {
     return Status::OK();
 }
 
-Status InputStream::seek(PagePointer pp) {
-    return Status::OK();
-}
-
-Status InputStream::read(Slice dst_slice) {
+/*
+Status InputStream::read(const PagePointer& pp, Slice dst_slice) {
     do {
         if (!_buffer.empty()) {
             // read from buffer
-            CHECK(_buffer.size() > dst_slice.get_size()) << ", buffer size:" << _buffer.size() << ", dst size:" << dst_slice.get_size();
+            DCHECK(_buffer.size() > dst_slice.get_size()) << ", buffer size:" << _buffer.size() << ", dst size:" << dst_slice.get_size();
             memcpy(dst_slice.mutable_data(), _buffer.current_pos(), dst_slice.get_size());
             _buffer.next(dst_slice.get_size());
             return Status::OK();
@@ -82,6 +47,54 @@ Status InputStream::read(Slice dst_slice) {
     } while (true);
     return Status::InternalError("can not reach here");
 }
+*/
+
+Status InputStream::init() {
+    DCHECK(_rblock) << "_rblock is null";
+    auto st = _rblock->size(&_file_length);
+    return st;
+}
+
+Status InputStream::read(const PagePointer& pp, Slice dst_slice) {
+    // LOG(INFO) << "read page pointer, offset:" << pp.offset << ", size:" << pp.size;
+    SCOPED_RAW_TIMER(&_stats->io_read_from_stream_time);
+    _stats->io_read_from_stream_count++;
+    if (!_buffer.empty() && pp.offset >= _file_offset && pp.offset + pp.size <= _file_offset + _buffer.size()) {
+        // the data is in memory
+        DCHECK(pp.size == dst_slice.get_size()) << "pp size:" << pp.size << ", dst size:" << dst_slice.get_size();
+        DCHECK(_buffer.size() > dst_slice.get_size())
+                << ", buffer size:" << _buffer.size() << ", dst size:" << dst_slice.get_size();
+        memcpy(dst_slice.mutable_data(), _buffer.data() + pp.offset - _file_offset, dst_slice.get_size());
+        //strings::memcpy_inlined(dst_slice.mutable_data(), _buffer.data() + pp.offset - _file_offset, dst_slice.get_size());
+        _stats->io_read_buffered_count++;
+    } else {
+        // read data from file
+        // read 1MB data each time
+        DCHECK(pp.size <= _file_length) << "page pointer size:" << pp.size << ", file_length:" << _file_length;
+        DCHECK(pp.offset < _file_length) << "page pointer offset:" << pp.offset << ", file_length:" << _file_length;
+        size_t length = _buffer.empty() ? pp.size : std::min(_buffer.capacity(), _file_length - pp.offset);
+        Slice page_slice(_buffer.data(), length);
+        {
+            SCOPED_RAW_TIMER(&_stats->io_read_directly_time);
+            RETURN_IF_ERROR(_rblock->read(pp.offset, page_slice));
+
+            size_t ahead_offset = pp.offset + length;
+            size_t ahead_length = std::min(_buffer.capacity(), _file_length - ahead_offset);
+            
+            if (ahead_length > 0) {
+                SCOPED_RAW_TIMER(&_stats->io_read_ahead_time);
+                RETURN_IF_ERROR(_rblock->read_ahead(ahead_offset, ahead_length));
+            }
+        }
+        _file_offset = pp.offset;
+        _buffer.resize(length);
+        memcpy(dst_slice.mutable_data(), _buffer.data() + pp.offset - _file_offset, dst_slice.get_size());
+        // strings::memcpy_inlined(dst_slice.mutable_data(), _buffer.data(), dst_slice.get_size());
+        _stats->io_read_directly_count++;
+    }
+    return Status::OK();
+}
+
 
 } // namespace segment_v2
 } // namespace starrocks

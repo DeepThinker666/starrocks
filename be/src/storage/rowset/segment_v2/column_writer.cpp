@@ -212,6 +212,9 @@ public:
     // finish append data
     Status finish() override;
 
+    Status write_dict() override {
+        return _scalar_column_writer->write_dict();
+    }
     Status write_data() override { return _scalar_column_writer->write_data(); };
     Status write_ordinal_index() override { return _scalar_column_writer->write_ordinal_index(); };
     Status write_zone_map() override { return _scalar_column_writer->write_zone_map(); };
@@ -400,7 +403,30 @@ Status ScalarColumnWriter::write_data() {
         RETURN_IF_ERROR(_write_data_page(page));
         page = page->next;
     }
+    /*
     // write column dict
+    if (_encoding_info->encoding() == DICT_ENCODING) {
+        faststring* dict_body = _page_builder->get_dictionary_page();
+        if (UNLIKELY(dict_body == nullptr)) {
+            return Status::InternalError("dictionary page is nullptr");
+        }
+
+        PageFooterPB footer;
+        footer.set_type(DICTIONARY_PAGE);
+        footer.set_uncompressed_size(dict_body->size());
+        footer.mutable_dict_page_footer()->set_encoding(PLAIN_ENCODING);
+
+        PagePointer dict_pp;
+        std::vector<Slice> body{Slice(*dict_body)};
+        RETURN_IF_ERROR(PageIO::compress_and_write_page(_compress_codec, _opts.compression_min_space_saving, _wblock,
+                                                        body, footer, &dict_pp));
+        dict_pp.to_proto(_opts.meta->mutable_dict_page());
+    }
+    */
+    return Status::OK();
+}
+
+Status ScalarColumnWriter::write_dict() {
     if (_encoding_info->encoding() == DICT_ENCODING) {
         faststring* dict_body = _page_builder->get_dictionary_page();
         if (UNLIKELY(dict_body == nullptr)) {
@@ -806,6 +832,15 @@ Status ArrayColumnWriter::write_data() {
     }
     RETURN_IF_ERROR(_array_size_writer->write_data());
     RETURN_IF_ERROR(_element_writer->write_data());
+    return Status::OK();
+}
+
+Status ArrayColumnWriter::write_dict() {
+    if (is_nullable()) {
+        RETURN_IF_ERROR(_null_writer->write_dict());
+    }
+    RETURN_IF_ERROR(_array_size_writer->write_dict());
+    RETURN_IF_ERROR(_element_writer->write_dict());
     return Status::OK();
 }
 

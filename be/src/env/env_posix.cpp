@@ -112,7 +112,8 @@ static Status do_readv_at(int fd, const std::string& filename, uint64_t offset, 
         // Never request more than IOV_MAX in one request
         size_t iov_count = std::min(res_cnt - completed_iov, static_cast<size_t>(IOV_MAX));
         ssize_t r;
-        RETRY_ON_EINTR(r, preadv(fd, iov + completed_iov, iov_count, cur_offset));
+        //RETRY_ON_EINTR(r, preadv(fd, iov + completed_iov, iov_count, cur_offset));
+        RETRY_ON_EINTR(r, preadv64(fd, iov + completed_iov, iov_count, cur_offset));
         if (PREDICT_FALSE(r < 0)) {
             // An error: return a non-ok status.
             return io_error(filename, errno);
@@ -259,6 +260,7 @@ public:
         }
     }
 
+    /*
     Status read(uint64_t offset, Slice* res) const override {
         uint64_t read_bytes = 0;
         auto st = do_readv_at(_fd, _filename, offset, res, 1, &read_bytes);
@@ -267,6 +269,28 @@ public:
             return Status::OK();
         }
         return st;
+    }
+    */
+
+    Status read(uint64_t offset, Slice* res) const override {
+        ssize_t size = pread64(_fd, res->mutable_data(), res->get_size(), offset);
+        static bool flag = false;
+        if (!flag) {
+            LOG(INFO) << "posix read file by pread64";
+            flag = true;
+        }
+        if (size < 0) {
+            return Status::Corruption("read data from data failed");
+        }
+        return Status::OK();
+    }
+
+    Status read_ahead(uint64_t offset, size_t count) const override {
+        ssize_t ret = readahead(_fd, offset, count);
+        if (ret < 0) {
+            return Status::IOError("read ahead failed. offset:" + std::to_string(offset) + ", count:" + std::to_string(count) + ", fd:" + std::to_string(_fd));
+        }
+        return Status::OK();
     }
 
     Status read_at(uint64_t offset, const Slice& result) const override {
@@ -287,6 +311,10 @@ public:
     }
 
     const std::string& file_name() const override { return _filename; }
+
+    int file() const override {
+        return _fd;
+    }
 
 private:
     std::string _filename;

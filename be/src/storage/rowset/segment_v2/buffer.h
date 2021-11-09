@@ -9,28 +9,40 @@ namespace segment_v2 {
 
 class Buffer {
 public:
-    explicit Buffer(size_t capacity) : _memory(capacity) { reset(); }
-    Buffer() : _memory(1024 * 1024) { reset(); }
+    explicit Buffer(size_t capacity) : _capacity(capacity) {
+        _memory = std::make_unique<uint8_t[]>(capacity);
+        reset();
+    }
+    Buffer() : _capacity(1024 * 1024) {
+        _memory = std::make_unique<uint8_t[]>(1024 * 1024);
+        reset();
+    }
 
     uint8_t* current_pos() { return _pos; }
 
+    uint8_t* data() {
+        return _memory.get();
+    }
+
+    size_t capacity() const { return _capacity; } 
+
+    /*
     void next(size_t size) {
         CHECK(size <= _end - _pos);
         _pos = _pos + size;
     }
+    */
 
     void resize(size_t size) {
          _end = _start + size;
-         _memory.resize(size);
     }
 
-    bool empty() { return _pos < _end; }
+    bool empty() { return _start >= _end; }
 
     void reset() {
-        _start = _memory.data();
-        _end = _memory.data() + _memory.capacity();
-        _pos = _start;
-        LOG(INFO) << "reset buffer. size:" << size() << ", _pos:" << hexdump((char*)&_pos, sizeof(uint8_t*)) << ", memory capacity:" << _memory.capacity();
+        _start = _memory.get();
+        _end = _memory.get();
+        _pos = _memory.get();
     }
 
     uint32_t size() {
@@ -38,7 +50,9 @@ public:
     }
 
 private:
-    Memory _memory;
+    // Memory _memory;
+    std::unique_ptr<uint8_t[]> _memory;
+    size_t _capacity;
     uint8_t* _start;
     uint8_t* _end;
     uint8_t* _pos;

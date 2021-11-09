@@ -30,7 +30,8 @@
 namespace starrocks {
 
 // The block size of the column storage file, which may be loaded into memory in its entirety, needs to be strictly controlled, defined here as 256MB
-static const uint32_t OLAP_MAX_COLUMN_SEGMENT_FILE_SIZE = 268435456;
+// static const uint32_t OLAP_MAX_COLUMN_SEGMENT_FILE_SIZE = 268435456;
+static const uint32_t OLAP_MAX_COLUMN_SEGMENT_FILE_SIZE = 2147483648;
 static const double OLAP_COLUMN_FILE_SEGMENT_SIZE_SCALE = 0.9;
 
 static const uint64_t OLAP_FIX_HEADER_MAGIC_NUMBER = 0;
