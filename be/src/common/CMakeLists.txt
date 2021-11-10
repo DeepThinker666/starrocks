@@ -29,6 +29,7 @@ add_library(Common STATIC
   resource_tls.cpp
   logconfig.cpp
   configbase.cpp
+  FastMemcpy.cpp
 )
 
 if ("${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86" OR "${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86_64")

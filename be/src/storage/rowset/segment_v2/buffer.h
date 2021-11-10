@@ -1,3 +1,5 @@
+#pragma once
+
 #include "storage/rowset/segment_v2/memory.h"
 
 #include "common/logging.h"

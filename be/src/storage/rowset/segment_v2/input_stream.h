@@ -12,7 +12,7 @@
 #include "storage/rowset/segment_v2/buffer.h"
 #include "storage/fs/block_manager.h"
 #include "storage/vectorized/range.h"
-
+#include "common/FastMemcpy.h"
 namespace starrocks {
 
 namespace segment_v2 {

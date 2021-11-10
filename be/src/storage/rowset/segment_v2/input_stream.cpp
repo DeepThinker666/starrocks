@@ -1,3 +1,5 @@
+#pragma once
+
 #include "storage/rowset/segment_v2/input_stream.h"
 
 #include "common/status.h"
@@ -65,6 +67,7 @@ Status InputStream::read(const PagePointer& pp, Slice dst_slice) {
         DCHECK(_buffer.size() > dst_slice.get_size())
                 << ", buffer size:" << _buffer.size() << ", dst size:" << dst_slice.get_size();
         memcpy(dst_slice.mutable_data(), _buffer.data() + pp.offset - _file_offset, dst_slice.get_size());
+        // memcpy_fast_sse(dst_slice.mutable_data(), _buffer.data() + pp.offset - _file_offset, dst_slice.get_size());
         //strings::memcpy_inlined(dst_slice.mutable_data(), _buffer.data() + pp.offset - _file_offset, dst_slice.get_size());
         _stats->io_read_buffered_count++;
     } else {
@@ -89,6 +92,7 @@ Status InputStream::read(const PagePointer& pp, Slice dst_slice) {
         _file_offset = pp.offset;
         _buffer.resize(length);
         memcpy(dst_slice.mutable_data(), _buffer.data() + pp.offset - _file_offset, dst_slice.get_size());
+        // memcpy_fast_sse(dst_slice.mutable_data(), _buffer.data() + pp.offset - _file_offset, dst_slice.get_size());
         // strings::memcpy_inlined(dst_slice.mutable_data(), _buffer.data(), dst_slice.get_size());
         _stats->io_read_directly_count++;
     }
