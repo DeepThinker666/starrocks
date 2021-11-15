@@ -254,6 +254,8 @@ private:
 
     RuntimeProfile::Counter* _read_dict_time = nullptr;
     RuntimeProfile::Counter* _load_dict_page_total_time = nullptr;
+
+    RuntimeProfile::Counter* _init_column_iterator_in_segment_time = nullptr;
 };
 
 } // namespace starrocks::vectorized

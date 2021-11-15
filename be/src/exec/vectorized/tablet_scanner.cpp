@@ -374,6 +374,9 @@ void TabletScanner::update_counter() {
 
     COUNTER_UPDATE(_parent->_read_dict_time, _reader->stats().read_dict_time);
     COUNTER_UPDATE(_parent->_load_dict_page_total_time, _reader->stats().load_dict_page_total_time);
+    
+    COUNTER_UPDATE(_parent->_init_column_iterator_in_segment_time, _reader->stats().init_column_iterator_in_segment_time);
+    COUNTER_UPDATE(_parent->_io_read_ahead_time, _reader->stats().io_read_ahead_time);
 
     StarRocksMetrics::instance()->query_scan_bytes.increment(_compressed_bytes_read);
     StarRocksMetrics::instance()->query_scan_rows.increment(_raw_rows_read);

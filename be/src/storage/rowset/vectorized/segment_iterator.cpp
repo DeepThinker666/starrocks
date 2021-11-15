@@ -566,7 +566,11 @@ Status SegmentIterator::_init_column_iterators(const Schema& schema) {
             iter_opts.use_page_cache = _opts.use_page_cache;
             iter_opts.rblock = _rblock.get();
             iter_opts.check_dict_encoding = check_dict_enc;
-            RETURN_IF_ERROR(_column_iterators[cid]->init(iter_opts));
+            {
+                SCOPED_RAW_TIMER(&_opts.stats->init_column_iterator_in_segment_time);
+                RETURN_IF_ERROR(_column_iterators[cid]->init(iter_opts));
+            }
+            
             //RETURN_IF_ERROR(_column_iterators[cid]->init_input_stream(_rblock.get()));            
 
             // we have a global dict map but column was not encode by dict

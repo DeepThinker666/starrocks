@@ -1,5 +1,3 @@
-#pragma once
-
 #include "storage/rowset/segment_v2/input_stream.h"
 
 #include "common/status.h"

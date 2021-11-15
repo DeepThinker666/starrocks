@@ -491,6 +491,8 @@ struct OlapReaderStatistics {
     int64_t seek_at_or_before_load_ordinal_time = 0;
     int64_t read_dict_time = 0;
     int64_t load_dict_page_total_time = 0;
+
+    int64_t init_column_iterator_in_segment_time = 0;
 };
 
 typedef uint32_t ColumnId;

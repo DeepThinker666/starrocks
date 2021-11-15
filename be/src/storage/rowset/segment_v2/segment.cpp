@@ -259,13 +259,14 @@ Status Segment::_parse_footer(size_t* footer_length_hint) {
             }
         }
     }
-    // LOG(INFO) << "read ahead ordinal index, offset:" << ordinal_index_offset << ", ordinal_index_length:" << ordinal_index_length;
+    LOG(INFO) << "read ahead ordinal index, offset:" << ordinal_index_offset << ", ordinal_index_length:" << ordinal_index_length;
     auto st  = rblock->read_ahead(ordinal_index_offset, ordinal_index_length);
     if (!st.ok()) {
         LOG(WARNING) << "read ahead ordinal index failed, msg:" << st.to_string();
     }
 
-    
+
+    /*
     uint64_t dict_page_offset = 0;
     size_t dict_page_length = 0;
     for (int i = 0; i < dict_pointers.size(); ++i) {
@@ -273,19 +274,24 @@ Status Segment::_parse_footer(size_t* footer_length_hint) {
         if (i == 0) {
             dict_page_offset = pp.offset();
         }
+        if (i > 0 && pp.offset() != dict_pointers[i - 1].offset() + dict_pointers[i - 1].size()) {
+            LOG(INFO) << "not continuous dict page, index:" << i;
+        }
         dict_page_length += pp.size();
     }
-    // LOG(INFO) << "read ahead dict page. offset:" << dict_page_offset << ", length:" << dict_page_length;
-    /*
+    LOG(INFO) << "read ahead dict page. offset:" << dict_page_offset << ", length:" << dict_page_length;
     st  = rblock->read_ahead(dict_page_offset, dict_page_length);
     if (!st.ok()) {
         LOG(WARNING) << "read ahead dict pages failed, msg:" << st.to_string();
     }
     */
+
+   /*
    int ret = posix_fadvise64(rblock->file(), dict_page_offset, dict_page_length, POSIX_FADV_WILLNEED);
    if (ret != 0) {
        LOG(WARNING) << "advise64 failed, ret:" << ret << ", file:" << rblock->file() << ", dict_page_offset:" << dict_page_offset << ", dict_page_length:" << dict_page_length;
    }
+   */
 
     // The memory usage obtained through SpaceUsedLong() is an estimate
     _mem_tracker->consume(static_cast<int64_t>(_footer.SpaceUsedLong()) -

@@ -466,7 +466,7 @@ void OlapScanNode::_init_counter(RuntimeState* state) {
 
     _read_dict_time = ADD_CHILD_TIMER(_scan_profile, "ReadDictTime", "SegmentRead");
     _load_dict_page_total_time = ADD_CHILD_TIMER(_scan_profile, "LoadDictPageTotalTime", "SegmentRead");
-
+    _init_column_iterator_in_segment_time = ADD_CHILD_TIMER(_scan_profile, "InitColumnIteratorInSegmentTime", "SegmentInit");
     /// IOTime
     _io_timer = ADD_TIMER(_scan_profile, "IOTime");
 }
