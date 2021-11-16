@@ -36,7 +36,7 @@ set -eo pipefail
 ROOT=`dirname "$0"`
 ROOT=`cd "$ROOT"; pwd`
 MACHINE_TYPE=$(uname -m)
-
+BUILD_TYPE=DEBUG
 export STARROCKS_HOME=${ROOT}
 
 . ${STARROCKS_HOME}/env.sh

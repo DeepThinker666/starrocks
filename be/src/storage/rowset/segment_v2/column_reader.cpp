@@ -193,7 +193,7 @@ Status ColumnReader::read_and_parse_data_page_from_stream(PageReadOptions opts, 
         uint32_t actual = crc32c::Value(page_slice.data, page_slice.size - 4);
         if (expect != actual) {
             return Status::Corruption(
-                    strings::Substitute("Bad page: checksum mismatch (actual=$0 vs expect=$1)", actual, expect));
+                    strings::Substitute("Bad page from stream: checksum mismatch (actual=$0 vs expect=$1)", actual, expect));
         }
     }
 
@@ -1006,8 +1006,12 @@ Status FileColumnIterator::_load_dict_page() {
     {
         SCOPED_RAW_TIMER(&_opts.stats->read_dict_time);
         // _opts.rblock->read_ahead(_reader->get_dict_page_pointer().offset, _reader->get_dict_page_pointer().size);
+        // RETURN_IF_ERROR(
+        //    _reader->read_page(_opts, _reader->get_dict_page_pointer(), &_dict_page_handle, &dict_data, &dict_footer));
+        LOG(INFO) << "start to read dict, pointer:" << _reader->get_dict_page_pointer().offset << ", size:" << _reader->get_dict_page_pointer().size;
         RETURN_IF_ERROR(
-            _reader->read_page(_opts, _reader->get_dict_page_pointer(), &_dict_page_handle, &dict_data, &dict_footer));
+            _reader->read_data_page(_opts, _reader->get_dict_page_pointer(), &_dict_page_handle, &dict_data, &dict_footer));
+        LOG(INFO) << "finish read dict, dict size:" << dict_data.get_size();
     }
 
     // ignore dict_footer.dict_page_footer().encoding() due to only
