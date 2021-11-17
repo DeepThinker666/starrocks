@@ -59,42 +59,50 @@ Status InputStream::read(const PagePointer& pp, Slice dst_slice) {
     // LOG(INFO) << "read page pointer, offset:" << pp.offset << ", size:" << pp.size;
     SCOPED_RAW_TIMER(&_stats->io_read_from_stream_time);
     _stats->io_read_from_stream_count++;
-    if (!_buffer.empty() && pp.offset >= _file_offset && pp.offset + pp.size <= _file_offset + _buffer.size()) {
-        // the data is in memory
-        DCHECK(pp.size == dst_slice.get_size()) << "pp size:" << pp.size << ", dst size:" << dst_slice.get_size();
-        DCHECK(_buffer.size() > dst_slice.get_size())
-                << ", buffer size:" << _buffer.size() << ", dst size:" << dst_slice.get_size();
-        memcpy(dst_slice.mutable_data(), _buffer.data() + pp.offset - _file_offset, dst_slice.get_size());
-        // memcpy_fast_sse(dst_slice.mutable_data(), _buffer.data() + pp.offset - _file_offset, dst_slice.get_size());
-        //strings::memcpy_inlined(dst_slice.mutable_data(), _buffer.data() + pp.offset - _file_offset, dst_slice.get_size());
-        _stats->io_read_buffered_count++;
-    } else {
-        // read data from file
-        // read 1MB data each time
-        DCHECK(pp.size <= _file_length) << "page pointer size:" << pp.size << ", file_length:" << _file_length;
-        DCHECK(pp.offset < _file_length) << "page pointer offset:" << pp.offset << ", file_length:" << _file_length;
-        size_t length = _buffer.empty() ? pp.size : std::min(_buffer.capacity(), _file_length - pp.offset);
-        Slice page_slice(_buffer.data(), length);
-        {
-            SCOPED_RAW_TIMER(&_stats->io_read_directly_time);
-            RETURN_IF_ERROR(_rblock->read(pp.offset, page_slice));
+    size_t to_read = dst_slice.get_size();
+    size_t size_read = 0;
+    while (size_read < to_read) {
+        if (!_buffer.empty() && pp.offset + size_read >= _file_offset && pp.offset + size_read < _file_offset + _buffer.size()) {
+            // the data is in memory
+            DCHECK(pp.size == dst_slice.get_size()) << "pp size:" << pp.size << ", dst size:" << dst_slice.get_size();
+            DCHECK(_buffer.size() > dst_slice.get_size())
+                    << ", buffer size:" << _buffer.size() << ", dst size:" << dst_slice.get_size();
+            uint64_t offset = pp.offset + size_read - _file_offset;
+            uint64_t size = std::min(dst_slice.get_size() - size_read, _buffer.size() - offset);
+            memcpy(dst_slice.mutable_data() + size_read, _buffer.data() + offset, size);
+            size_read += size;
+            // memcpy_fast_sse(dst_slice.mutable_data(), _buffer.data() + pp.offset - _file_offset, dst_slice.get_size());
+            //strings::memcpy_inlined(dst_slice.mutable_data(), _buffer.data() + pp.offset - _file_offset, dst_slice.get_size());
+            _stats->io_read_buffered_count++;
+        } else {
+            // read data from file
+            // read 1MB data each time
+            DCHECK(pp.size <= _file_length) << "page pointer size:" << pp.size << ", file_length:" << _file_length;
+            DCHECK(pp.offset < _file_length) << "page pointer offset:" << pp.offset << ", file_length:" << _file_length;
+            size_t length = _buffer.empty() ? pp.size : std::min(_buffer.capacity(), _file_length - pp.offset - size_read);
+            Slice page_slice(_buffer.data(), length);
+            {
+                SCOPED_RAW_TIMER(&_stats->io_read_directly_time);
+                RETURN_IF_ERROR(_rblock->read(pp.offset + size_read, page_slice));
 
-            size_t ahead_offset = pp.offset + length;
-            size_t ahead_length = std::min(_buffer.capacity(), _file_length - ahead_offset);
-            
-            if (ahead_length > 0) {
-                SCOPED_RAW_TIMER(&_stats->io_read_ahead_time);
-                //RETURN_IF_ERROR(_rblock->read_ahead(ahead_offset, ahead_length));
-                RETURN_IF_ERROR(_rblock->fadvise(ahead_offset, ahead_length, POSIX_FADV_SEQUENTIAL));
+                size_t ahead_offset = pp.offset + length;
+                size_t ahead_length = std::min(_buffer.capacity(), _file_length - ahead_offset);
+
+                if (ahead_length > 0) {
+                    SCOPED_RAW_TIMER(&_stats->io_read_ahead_time);
+                    //RETURN_IF_ERROR(_rblock->read_ahead(ahead_offset, ahead_length));
+                    RETURN_IF_ERROR(_rblock->fadvise(ahead_offset, ahead_length, POSIX_FADV_SEQUENTIAL));
+                }
             }
+            _file_offset = pp.offset + size_read;
+            _buffer.resize(length);
+            // memcpy(dst_slice.mutable_data(), _buffer.data() + pp.offset - _file_offset, dst_slice.get_size());
+            // memcpy_fast_sse(dst_slice.mutable_data(), _buffer.data() + pp.offset - _file_offset, dst_slice.get_size());
+            // strings::memcpy_inlined(dst_slice.mutable_data(), _buffer.data(), dst_slice.get_size());
+            _stats->io_read_directly_count++;
         }
-        _file_offset = pp.offset;
-        _buffer.resize(length);
-        memcpy(dst_slice.mutable_data(), _buffer.data() + pp.offset - _file_offset, dst_slice.get_size());
-        // memcpy_fast_sse(dst_slice.mutable_data(), _buffer.data() + pp.offset - _file_offset, dst_slice.get_size());
-        // strings::memcpy_inlined(dst_slice.mutable_data(), _buffer.data(), dst_slice.get_size());
-        _stats->io_read_directly_count++;
     }
+    
     return Status::OK();
 }
 

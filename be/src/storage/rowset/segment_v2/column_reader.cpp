@@ -237,8 +237,8 @@ Status ColumnReader::read_data_page(const ColumnIteratorOptions& iter_opts, cons
     *page_body = Slice(compressed_data.data, body_size);
     if (body_size != footer->uncompressed_size()) {
         RETURN_IF_ERROR(PageIO::decompress_page(&compressed_data, body_size, footer_size, opts, handle, page_body, footer));
-        opts.stats->uncompressed_bytes_read += footer->uncompressed_size() + footer_size + 4;
     }
+    opts.stats->uncompressed_bytes_read += footer->uncompressed_size() + footer_size + 4;
 
     // decompress the page
     // return PageIO::read_and_decompress_page(opts, handle, page_body, footer);
