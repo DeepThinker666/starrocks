@@ -293,6 +293,14 @@ public:
         return Status::OK();
     }
 
+    Status fadvise(uint64_t offset, size_t count, int advice) const override {
+        int ret = posix_fadvise(_fd, offset, count, advice);
+        if (ret < 0) {
+            return Status::IOError("read ahead failed. offset:" + std::to_string(offset) + ", count:" + std::to_string(count) + ", fd:" + std::to_string(_fd));
+        }
+        return Status::OK();
+    }    
+
     Status read_at(uint64_t offset, const Slice& result) const override {
         return do_readv_at(_fd, _filename, offset, &result, 1, nullptr);
     }

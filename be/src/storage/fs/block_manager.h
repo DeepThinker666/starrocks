@@ -169,6 +169,10 @@ public:
         return Status::OK();
     }
 
+    virtual Status fadvise(uint64_t offset, size_t count, int advice) const {
+        return Status::OK();
+    }
+
     virtual int file() const {
         return 0;
     }

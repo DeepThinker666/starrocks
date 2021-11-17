@@ -398,12 +398,6 @@ Status ScalarColumnWriter::finish() {
 }
 
 Status ScalarColumnWriter::write_data() {
-    Page* page = _pages.head;
-    while (page != nullptr) {
-        RETURN_IF_ERROR(_write_data_page(page));
-        page = page->next;
-    }
-    /*
     // write column dict
     if (_encoding_info->encoding() == DICT_ENCODING) {
         faststring* dict_body = _page_builder->get_dictionary_page();
@@ -422,7 +416,11 @@ Status ScalarColumnWriter::write_data() {
                                                         body, footer, &dict_pp));
         dict_pp.to_proto(_opts.meta->mutable_dict_page());
     }
-    */
+    Page* page = _pages.head;
+    while (page != nullptr) {
+        RETURN_IF_ERROR(_write_data_page(page));
+        page = page->next;
+    }
     return Status::OK();
 }
 

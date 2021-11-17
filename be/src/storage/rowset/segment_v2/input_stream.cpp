@@ -84,7 +84,8 @@ Status InputStream::read(const PagePointer& pp, Slice dst_slice) {
             
             if (ahead_length > 0) {
                 SCOPED_RAW_TIMER(&_stats->io_read_ahead_time);
-                RETURN_IF_ERROR(_rblock->read_ahead(ahead_offset, ahead_length));
+                //RETURN_IF_ERROR(_rblock->read_ahead(ahead_offset, ahead_length));
+                RETURN_IF_ERROR(_rblock->fadvise(ahead_offset, ahead_length, POSIX_FADV_SEQUENTIAL));
             }
         }
         _file_offset = pp.offset;

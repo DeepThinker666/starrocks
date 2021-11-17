@@ -239,6 +239,10 @@ public:
         return Status::OK();
     }
 
+    virtual Status fadvise(uint64_t offset, size_t count, int advice) const {
+        return Status::OK();
+    }
+
     // Reads up to the "results" aggregate size, based on each Slice's "size",
     // from the file starting at 'offset'. The Slices must point to already-allocated
     // buffers for the data to be written to.

@@ -279,7 +279,8 @@ public:
                 if (status.is_end_of_file()) {
                     break;
                 } else {
-                    return Status::InternalError("reader get_next error.");
+                    LOG(INFO) << "get next failed. rowset merger, status:" << status.to_string();
+                    return Status::InternalError("reader get_next error. status:" + status.to_string());
                 }
             }
 

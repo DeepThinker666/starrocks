@@ -151,7 +151,7 @@ Status SegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* index_size
     for (auto& column_writer : _column_writers) {
         RETURN_IF_ERROR(column_writer->finish());
     }
-    RETURN_IF_ERROR(_write_dict());
+    // RETURN_IF_ERROR(_write_dict());
     RETURN_IF_ERROR(_write_data());
     uint64_t index_offset = _wblock->bytes_appended();
     RETURN_IF_ERROR(_write_ordinal_index());

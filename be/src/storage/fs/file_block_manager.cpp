@@ -272,6 +272,8 @@ public:
 
     Status readv(uint64_t offset, const Slice* results, size_t res_cnt) const override;
 
+    Status fadvise(uint64_t offset, size_t count, int advice) const override;
+
     void handle_error(const Status& s) const;
 
     int file() const override {
@@ -352,6 +354,11 @@ Status FileReadableBlock::read(uint64_t offset, Slice result) const {
 
 Status FileReadableBlock::read_ahead(uint64_t offset, size_t count) const {
     Status st = _file->read_ahead(offset, count);
+    return st;
+}
+
+Status FileReadableBlock::fadvise(uint64_t offset, size_t count, int advice) const {
+    Status st = _file->fadvise(offset, count, advice);
     return st;
 }
 
