@@ -55,6 +55,7 @@ Status InputStream::init() {
     return st;
 }
 
+/*
 Status InputStream::read(const PagePointer& pp, Slice dst_slice) {
     // LOG(INFO) << "read page pointer, offset:" << pp.offset << ", size:" << pp.size;
     SCOPED_RAW_TIMER(&_stats->io_read_from_stream_time);
@@ -105,7 +106,26 @@ Status InputStream::read(const PagePointer& pp, Slice dst_slice) {
     
     return Status::OK();
 }
+*/
 
+Status InputStream::read(const PagePointer& pp, Slice dst_slice) {
+    SCOPED_RAW_TIMER(&_stats->io_read_from_stream_time);
+    _stats->io_read_from_stream_count++;
+    {
+        SCOPED_RAW_TIMER(&_stats->io_read_directly_time);
+        RETURN_IF_ERROR(_rblock->read(pp.offset, dst_slice));
+        size_t ahead_length = std::min(_buffer.capacity(), _file_length - pp.offset - dst_slice.get_size());
+
+        /*
+        if (ahead_length > 0) {
+            SCOPED_RAW_TIMER(&_stats->io_read_ahead_time);
+            //RETURN_IF_ERROR(_rblock->read_ahead(ahead_offset, ahead_length));
+            RETURN_IF_ERROR(_rblock->fadvise(pp.offset + pp.size, ahead_length, POSIX_FADV_SEQUENTIAL));
+        }
+        */
+    }
+    return Status::OK();
+}
 
 } // namespace segment_v2
 } // namespace starrocks
