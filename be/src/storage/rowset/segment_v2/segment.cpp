@@ -265,7 +265,14 @@ Status Segment::_parse_footer(size_t* footer_length_hint) {
         LOG(WARNING) << "read ahead ordinal index failed, msg:" << st.to_string();
     }
 
-
+    // read ahead short key index
+    /*
+    PagePointerPB short_key = _footer.short_key_index_page();
+    st  = rblock->fadvise(short_key.offset(), short_key.size(), POSIX_FADV_SEQUENTIAL);
+    if (!st.ok()) {
+        LOG(WARNING) << "read ahead short key index failed, msg:" << st.to_string();
+    }
+    */
     /*
     uint64_t dict_page_offset = 0;
     size_t dict_page_length = 0;

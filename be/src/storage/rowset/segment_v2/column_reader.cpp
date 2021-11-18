@@ -866,7 +866,10 @@ Status FileColumnIterator::init_input_stream(fs::ReadableBlock* rblock) {
 
 Status FileColumnIterator::seek_to_first() {
     RETURN_IF_ERROR(_reader->seek_to_first(_opts.stats, &_page_iter));
-    RETURN_IF_ERROR(_read_data_page(_page_iter));
+    {
+        SCOPED_RAW_TIMER(&_opts.stats->seek_load_data_page_time);
+        RETURN_IF_ERROR(_read_data_page(_page_iter));
+    }
 
     _seek_to_pos_in_page(_page.get(), 0);
     _current_ordinal = 0;
@@ -1006,12 +1009,12 @@ Status FileColumnIterator::_load_dict_page() {
     {
         SCOPED_RAW_TIMER(&_opts.stats->read_dict_time);
         // _opts.rblock->read_ahead(_reader->get_dict_page_pointer().offset, _reader->get_dict_page_pointer().size);
-        // RETURN_IF_ERROR(
-        //    _reader->read_page(_opts, _reader->get_dict_page_pointer(), &_dict_page_handle, &dict_data, &dict_footer));
-        LOG(INFO) << "start to read dict, pointer:" << _reader->get_dict_page_pointer().offset << ", size:" << _reader->get_dict_page_pointer().size;
         RETURN_IF_ERROR(
-            _reader->read_data_page(_opts, _reader->get_dict_page_pointer(), &_dict_page_handle, &dict_data, &dict_footer));
-        LOG(INFO) << "finish read dict, dict size:" << dict_data.get_size();
+            _reader->read_page(_opts, _reader->get_dict_page_pointer(), &_dict_page_handle, &dict_data, &dict_footer));
+        //LOG(INFO) << "start to read dict, pointer:" << _reader->get_dict_page_pointer().offset << ", size:" << _reader->get_dict_page_pointer().size;
+        //RETURN_IF_ERROR(
+        //    _reader->read_data_page(_opts, _reader->get_dict_page_pointer(), &_dict_page_handle, &dict_data, &dict_footer));
+       // LOG(INFO) << "finish read dict, dict size:" << dict_data.get_size();
     }
 
     // ignore dict_footer.dict_page_footer().encoding() due to only
@@ -1043,9 +1046,9 @@ Status FileColumnIterator::_read_data_page(const OrdinalPageIndexIterator& iter)
     PageFooterPB footer;
     {
         SCOPED_RAW_TIMER(&_opts.stats->read_and_decompress_page_time);
-        // RETURN_IF_ERROR(_reader->read_page(_opts, iter.page(), &handle, &page_body, &footer));
+        RETURN_IF_ERROR(_reader->read_page(_opts, iter.page(), &handle, &page_body, &footer));
         // read from input stream
-        RETURN_IF_ERROR(_reader->read_data_page(_opts, iter.page(), &handle, &page_body, &footer));
+        // RETURN_IF_ERROR(_reader->read_data_page(_opts, iter.page(), &handle, &page_body, &footer));
     }
 
     {
