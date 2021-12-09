@@ -685,7 +685,7 @@ public class DatabaseTransactionMgr {
         return true;
     }
 
-    public void finishTransaction(long transactionId, Set<Long> errorReplicaIds) throws UserException {
+    public void finishTransaction(long transactionId, Set<Long> errorReplicaIds, Set<Long> unfinishedBackends) throws UserException {
         TransactionState transactionState = null;
         readLock();
         try {
@@ -696,6 +696,9 @@ public class DatabaseTransactionMgr {
         // add all commit errors and publish errors to a single set
         if (errorReplicaIds == null) {
             errorReplicaIds = Sets.newHashSet();
+        }
+        if (unfinishedBackends == null) {
+            unfinishedBackends = Sets.newHashSet();
         }
         Set<Long> originalErrorReplicas = transactionState.getErrorReplicas();
         if (originalErrorReplicas != null) {
@@ -765,7 +768,7 @@ public class DatabaseTransactionMgr {
                         for (Tablet tablet : index.getTablets()) {
                             int healthReplicaNum = 0;
                             for (Replica replica : tablet.getReplicas()) {
-                                if (!errorReplicaIds.contains(replica.getId())
+                                if (!errorReplicaIds.contains(replica.getId()) && !unfinishedBackends.contains(replica.getBackendId())
                                         && replica.getLastFailedVersion() < 0) {
                                     // this means the replica is a healthy replica,
                                     // it is healthy in the past and does not have error in current load

@@ -94,6 +94,7 @@ public class PublishVersionDaemon extends MasterDaemon {
         for (TransactionState transactionState : readyTransactionStates) {
             Map<Long, PublishVersionTask> transTasks = transactionState.getPublishVersionTasks();
             Set<Long> publishErrorReplicaIds = Sets.newHashSet();
+            Set<Long> unfinishedBackends = Sets.newHashSet();
             boolean allTaskFinished = true;
             for (PublishVersionTask publishVersionTask : transTasks.values()) {
                 if (publishVersionTask.isFinished()) {
@@ -105,6 +106,7 @@ public class PublishVersionDaemon extends MasterDaemon {
                     }
                 } else {
                     allTaskFinished = false;
+                    unfinishedBackends.add(publishVersionTask.getBackendId());
                 }
             }
             boolean shouldFinishTxn = true;
@@ -114,7 +116,7 @@ public class PublishVersionDaemon extends MasterDaemon {
 
             if (shouldFinishTxn) {
                 globalTransactionMgr.finishTransaction(transactionState.getDbId(), transactionState.getTransactionId(),
-                        publishErrorReplicaIds);
+                        publishErrorReplicaIds, unfinishedBackends);
                 if (transactionState.getTransactionStatus() != TransactionStatus.VISIBLE) {
                     // if finish transaction state failed, then update publish version time, should check 
                     // to finish after some interval

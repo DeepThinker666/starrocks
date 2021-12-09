@@ -424,9 +424,9 @@ public class GlobalTransactionMgr implements Writable {
      * @param errorReplicaIds
      * @return
      */
-    public void finishTransaction(long dbId, long transactionId, Set<Long> errorReplicaIds) throws UserException {
+    public void finishTransaction(long dbId, long transactionId, Set<Long> errorReplicaIds, Set<Long> unfinishedBackends) throws UserException {
         DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
-        dbTransactionMgr.finishTransaction(transactionId, errorReplicaIds);
+        dbTransactionMgr.finishTransaction(transactionId, errorReplicaIds, unfinishedBackends);
     }
 
     public boolean canTxnFinished(TransactionState txn, Set<Long> errReplicas) throws UserException {
