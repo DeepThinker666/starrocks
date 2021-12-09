@@ -669,7 +669,8 @@ public class DatabaseTransactionMgr {
                                 if (!errReplicas.contains(replica.getId()) && replica.getLastFailedVersion() < 0) {
                                     if (replica.getVersion() >= partitionCommitInfo.getVersion()) {
                                         ++healthReplicaNum;
-                                    } else if (unfinishedBackends != null && unfinishedBackends.contains(replica.getBackendId())) {
+                                    } else if (unfinishedBackends != null
+                                            && unfinishedBackends.contains(replica.getBackendId())) {
                                         errReplicas.add(replica.getId());
                                     }
                                 }

@@ -429,7 +429,8 @@ public class GlobalTransactionMgr implements Writable {
         dbTransactionMgr.finishTransaction(transactionId, errorReplicaIds);
     }
 
-    public boolean canTxnFinished(TransactionState txn, Set<Long> errReplicas, Set<Long> unfinishedBackends) throws UserException {
+    public boolean canTxnFinished(TransactionState txn, Set<Long> errReplicas,
+                                  Set<Long> unfinishedBackends) throws UserException {
         DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(txn.getDbId());
         return dbTransactionMgr.canTxnFinished(txn, errReplicas, unfinishedBackends);
     }
