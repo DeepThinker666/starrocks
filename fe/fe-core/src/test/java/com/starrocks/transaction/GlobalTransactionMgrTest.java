@@ -471,7 +471,7 @@ public class GlobalTransactionMgrTest {
         assertEquals(TransactionStatus.COMMITTED, transactionState.getTransactionStatus());
         Set<Long> errorReplicaIds = Sets.newHashSet();
         errorReplicaIds.add(CatalogTestUtil.testReplicaId1);
-        masterTransMgr.finishTransaction(CatalogTestUtil.testDbId1, transactionId, errorReplicaIds, null);
+        masterTransMgr.finishTransaction(CatalogTestUtil.testDbId1, transactionId, errorReplicaIds);
         transactionState = fakeEditLog.getTransaction(transactionId);
         assertEquals(TransactionStatus.VISIBLE, transactionState.getTransactionStatus());
         // check replica version
@@ -527,8 +527,8 @@ public class GlobalTransactionMgrTest {
         FakeCatalog.setCatalog(masterCatalog);
         Set<Long> errorReplicaIds = Sets.newHashSet();
         errorReplicaIds.add(CatalogTestUtil.testReplicaId2);
-        assertEquals(masterTransMgr.canTxnFinished(transactionState, errorReplicaIds), false);
-        masterTransMgr.finishTransaction(CatalogTestUtil.testDbId1, transactionId, errorReplicaIds, null);
+        assertEquals(masterTransMgr.canTxnFinished(transactionState, errorReplicaIds, Sets.newHashSet()), false);
+        masterTransMgr.finishTransaction(CatalogTestUtil.testDbId1, transactionId, errorReplicaIds);
         assertEquals(TransactionStatus.COMMITTED, transactionState.getTransactionStatus());
         Replica replcia1 = tablet.getReplicaById(CatalogTestUtil.testReplicaId1);
         Replica replcia2 = tablet.getReplicaById(CatalogTestUtil.testReplicaId2);
@@ -541,8 +541,8 @@ public class GlobalTransactionMgrTest {
         assertEquals(CatalogTestUtil.testStartVersion + 1, replcia3.getLastFailedVersion());
 
         errorReplicaIds = Sets.newHashSet();
-        assertEquals(masterTransMgr.canTxnFinished(transactionState, errorReplicaIds), false);
-        masterTransMgr.finishTransaction(CatalogTestUtil.testDbId1, transactionId, errorReplicaIds, null);
+        assertEquals(masterTransMgr.canTxnFinished(transactionState, errorReplicaIds, Sets.newHashSet()), false);
+        masterTransMgr.finishTransaction(CatalogTestUtil.testDbId1, transactionId, errorReplicaIds);
         assertEquals(TransactionStatus.VISIBLE, transactionState.getTransactionStatus());
         assertEquals(CatalogTestUtil.testStartVersion + 1, replcia1.getVersion());
         assertEquals(CatalogTestUtil.testStartVersion + 1, replcia2.getVersion());
@@ -606,8 +606,8 @@ public class GlobalTransactionMgrTest {
 
         // master finish the transaction2
         errorReplicaIds = Sets.newHashSet();
-        assertEquals(masterTransMgr.canTxnFinished(transactionState, errorReplicaIds), false);
-        masterTransMgr.finishTransaction(CatalogTestUtil.testDbId1, transactionId2, errorReplicaIds, null);
+        assertEquals(masterTransMgr.canTxnFinished(transactionState, errorReplicaIds, Sets.newHashSet()), false);
+        masterTransMgr.finishTransaction(CatalogTestUtil.testDbId1, transactionId2, errorReplicaIds);
         assertEquals(TransactionStatus.VISIBLE, transactionState.getTransactionStatus());
         assertEquals(CatalogTestUtil.testStartVersion + 2, replcia1.getVersion());
         assertEquals(CatalogTestUtil.testStartVersion + 2, replcia2.getVersion());

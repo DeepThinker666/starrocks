@@ -629,7 +629,7 @@ public class DatabaseTransactionMgr {
     // check whether transaction can be finished or not
     // for each tablet of load txn, if most replicas version publish successed
     // the trasaction can be treated as successful and can be finished
-    public boolean canTxnFinished(TransactionState txn, Set<Long> errReplicas) {
+    public boolean canTxnFinished(TransactionState txn, Set<Long> errReplicas, Set<Long> unfinishedBackends) {
         Database db = catalog.getDb(txn.getDbId());
         if (db == null) {
             return true;
@@ -669,6 +669,8 @@ public class DatabaseTransactionMgr {
                                 if (!errReplicas.contains(replica.getId()) && replica.getLastFailedVersion() < 0) {
                                     if (replica.getVersion() >= partitionCommitInfo.getVersion()) {
                                         ++healthReplicaNum;
+                                    } else if (unfinishedBackends != null && unfinishedBackends.contains(replica.getBackendId())) {
+                                        errReplicas.add(replica.getId());
                                     }
                                 }
                             }
@@ -685,8 +687,7 @@ public class DatabaseTransactionMgr {
         return true;
     }
 
-    public void finishTransaction(long transactionId, Set<Long> errorReplicaIds,
-                                  Set<Long> unfinishedBackends) throws UserException {
+    public void finishTransaction(long transactionId, Set<Long> errorReplicaIds) throws UserException {
         TransactionState transactionState = null;
         readLock();
         try {
@@ -697,9 +698,6 @@ public class DatabaseTransactionMgr {
         // add all commit errors and publish errors to a single set
         if (errorReplicaIds == null) {
             errorReplicaIds = Sets.newHashSet();
-        }
-        if (unfinishedBackends == null) {
-            unfinishedBackends = Sets.newHashSet();
         }
         Set<Long> originalErrorReplicas = transactionState.getErrorReplicas();
         if (originalErrorReplicas != null) {
@@ -770,7 +768,6 @@ public class DatabaseTransactionMgr {
                             int healthReplicaNum = 0;
                             for (Replica replica : tablet.getReplicas()) {
                                 if (!errorReplicaIds.contains(replica.getId())
-                                        && !unfinishedBackends.contains(replica.getBackendId())
                                         && replica.getLastFailedVersion() < 0) {
                                     // this means the replica is a healthy replica,
                                     // it is healthy in the past and does not have error in current load
@@ -852,7 +849,7 @@ public class DatabaseTransactionMgr {
                 writeUnlock();
                 transactionState.afterStateTransform(TransactionStatus.VISIBLE, txnOperated);
             }
-            updateCatalogAfterVisible(transactionState, db, unfinishedBackends);
+            updateCatalogAfterVisible(transactionState, db);
         } finally {
             db.writeUnlock();
         }
@@ -1294,10 +1291,7 @@ public class DatabaseTransactionMgr {
         }
     }
 
-    private boolean updateCatalogAfterVisible(TransactionState transactionState, Database db, Set<Long> unfinishedBackends) {
-        if (unfinishedBackends == null) {
-            unfinishedBackends = Sets.newHashSet();
-        }
+    private boolean updateCatalogAfterVisible(TransactionState transactionState, Database db) {
         Set<Long> errorReplicaIds = transactionState.getErrorReplicas();
         for (TableCommitInfo tableCommitInfo : transactionState.getIdToTableCommitInfos().values()) {
             long tableId = tableCommitInfo.getTableId();
@@ -1316,8 +1310,7 @@ public class DatabaseTransactionMgr {
                             long lastFailedVersion = replica.getLastFailedVersion();
                             long newVersion = newCommitVersion;
                             long lastSucessVersion = replica.getLastSuccessVersion();
-                            if (!errorReplicaIds.contains(replica.getId())
-                                    && !unfinishedBackends.contains(replica.getBackendId())) {
+                            if (!errorReplicaIds.contains(replica.getId())) {
                                 if (replica.getLastFailedVersion() > 0) {
                                     // if the replica is a failed replica, then not changing version
                                     newVersion = replica.getVersion();
@@ -1453,7 +1446,7 @@ public class DatabaseTransactionMgr {
                 updateCatalogAfterCommitted(transactionState, db);
             } else if (transactionState.getTransactionStatus() == TransactionStatus.VISIBLE) {
                 LOG.info("replay a visible transaction {}", transactionState);
-                updateCatalogAfterVisible(transactionState, db, null);
+                updateCatalogAfterVisible(transactionState, db);
             }
             unprotectUpsertTransactionState(transactionState, true);
         } finally {

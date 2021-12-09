@@ -111,15 +111,15 @@ public class PublishVersionDaemon extends MasterDaemon {
             }
             boolean shouldFinishTxn = true;
             if (!allTaskFinished) {
-                shouldFinishTxn = globalTransactionMgr.canTxnFinished(transactionState, publishErrorReplicaIds);
+                shouldFinishTxn = globalTransactionMgr.canTxnFinished(transactionState, publishErrorReplicaIds, unfinishedBackends);
                 if (shouldFinishTxn) {
-                    LOG.warn("txn success for quorum finish. unfinished backends:" + unfinishedBackends);
+                    LOG.warn("txn success for quorum finish. unfinished backends:" + unfinishedBackends + ", error replica:" + publishErrorReplicaIds);
                 }
             }
 
             if (shouldFinishTxn) {
                 globalTransactionMgr.finishTransaction(transactionState.getDbId(), transactionState.getTransactionId(),
-                        publishErrorReplicaIds, unfinishedBackends);
+                        publishErrorReplicaIds);
                 if (transactionState.getTransactionStatus() != TransactionStatus.VISIBLE) {
                     // if finish transaction state failed, then update publish version time, should check 
                     // to finish after some interval
