@@ -1295,6 +1295,9 @@ public class DatabaseTransactionMgr {
     }
 
     private boolean updateCatalogAfterVisible(TransactionState transactionState, Database db, Set<Long> unfinishedBackends) {
+        if (unfinishedBackends == null) {
+            unfinishedBackends = Sets.newHashSet();
+        }
         Set<Long> errorReplicaIds = transactionState.getErrorReplicas();
         for (TableCommitInfo tableCommitInfo : transactionState.getIdToTableCommitInfos().values()) {
             long tableId = tableCommitInfo.getTableId();
