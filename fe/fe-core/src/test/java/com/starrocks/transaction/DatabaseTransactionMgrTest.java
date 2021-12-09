@@ -105,7 +105,7 @@ public class DatabaseTransactionMgrTest {
         transTablets.add(tabletCommitInfo2);
         transTablets.add(tabletCommitInfo3);
         masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, transactionId1, transTablets);
-        masterTransMgr.finishTransaction(CatalogTestUtil.testDbId1, transactionId1, null);
+        masterTransMgr.finishTransaction(CatalogTestUtil.testDbId1, transactionId1, null, null);
         lableToTxnId.put(CatalogTestUtil.testTxnLable1, transactionId1);
 
         TransactionState.TxnCoordinator beTransactionSource =
