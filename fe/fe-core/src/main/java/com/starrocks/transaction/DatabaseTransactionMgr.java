@@ -852,7 +852,7 @@ public class DatabaseTransactionMgr {
                 writeUnlock();
                 transactionState.afterStateTransform(TransactionStatus.VISIBLE, txnOperated);
             }
-            updateCatalogAfterVisible(transactionState, db);
+            updateCatalogAfterVisible(transactionState, db, unfinishedBackends);
         } finally {
             db.writeUnlock();
         }
@@ -1294,7 +1294,7 @@ public class DatabaseTransactionMgr {
         }
     }
 
-    private boolean updateCatalogAfterVisible(TransactionState transactionState, Database db) {
+    private boolean updateCatalogAfterVisible(TransactionState transactionState, Database db, Set<Long> unfinishedBackends) {
         Set<Long> errorReplicaIds = transactionState.getErrorReplicas();
         for (TableCommitInfo tableCommitInfo : transactionState.getIdToTableCommitInfos().values()) {
             long tableId = tableCommitInfo.getTableId();
@@ -1313,7 +1313,8 @@ public class DatabaseTransactionMgr {
                             long lastFailedVersion = replica.getLastFailedVersion();
                             long newVersion = newCommitVersion;
                             long lastSucessVersion = replica.getLastSuccessVersion();
-                            if (!errorReplicaIds.contains(replica.getId())) {
+                            if (!errorReplicaIds.contains(replica.getId())
+                                    && !unfinishedBackends.contains(replica.getBackendId())) {
                                 if (replica.getLastFailedVersion() > 0) {
                                     // if the replica is a failed replica, then not changing version
                                     newVersion = replica.getVersion();
@@ -1449,7 +1450,7 @@ public class DatabaseTransactionMgr {
                 updateCatalogAfterCommitted(transactionState, db);
             } else if (transactionState.getTransactionStatus() == TransactionStatus.VISIBLE) {
                 LOG.info("replay a visible transaction {}", transactionState);
-                updateCatalogAfterVisible(transactionState, db);
+                updateCatalogAfterVisible(transactionState, db, null);
             }
             unprotectUpsertTransactionState(transactionState, true);
         } finally {
