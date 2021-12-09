@@ -112,6 +112,9 @@ public class PublishVersionDaemon extends MasterDaemon {
             boolean shouldFinishTxn = true;
             if (!allTaskFinished) {
                 shouldFinishTxn = globalTransactionMgr.canTxnFinished(transactionState, publishErrorReplicaIds);
+                if (shouldFinishTxn) {
+                    LOG.warn("txn success for quorum finish. unfinished backends:" + unfinishedBackends);
+                }
             }
 
             if (shouldFinishTxn) {
