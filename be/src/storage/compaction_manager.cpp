@@ -1,0 +1,96 @@
+// This file is licensed under the Elastic License 2.0. Copyright 2021 StarRocks Limited.
+
+#include "storage/compaction_manager.h"
+
+#include "storage/data_dir.h"
+namespace starrocks {
+
+std::unique_ptr<CompactionManager> CompactionManager::_instance(new CompactionManager());
+
+CompactionManager* CompactionManager::instance() {
+    return _instance.get();
+}
+
+void CompactionManager::update_candidate(Tablet* tablet) {
+    std::lock_guard lg(_mutex);
+    _candidate_tablets.erase(tablet);
+    _candidate_tablets.insert(tablet);
+    LOG(INFO) << "current _candidate_tablets size:" << _candidate_tablets.size();
+}
+
+void CompactionManager::insert_candidates(const std::vector<Tablet*>& tablets) {
+    std::lock_guard lg(_mutex);
+    _candidate_tablets.insert(tablets.begin(), tablets.end());
+}
+
+Tablet* CompactionManager::pick_candidate() {
+    std::lock_guard lg(_mutex);
+    size_t original_num = _candidate_tablets.size();
+    if (_candidate_tablets.empty()) {
+        // return nullptr if _candidate_tablets is empty
+        return nullptr;
+    }
+
+    auto iter = _candidate_tablets.begin();
+    Tablet* ret = *iter;
+    _candidate_tablets.erase(iter);
+    LOG(INFO) << "candidate tablets size:" << _candidate_tablets.size() << ", original num:" << original_num;
+    return ret;
+}
+
+bool CompactionManager::register_task(CompactionTask* compaction_task) {
+    if (!compaction_task) {
+        return false;
+    }
+    LOG(INFO) << "register compaction task:" << compaction_task->task_id()
+              << ", tablet:" << compaction_task->tablet()->tablet_id();
+    std::lock_guard lg(_mutex);
+    if (_running_tasks.size() >= config::max_compaction_task_num) {
+        LOG(WARNING) << "register compaction task failed for running tasks reach limit:"
+                     << config::max_compaction_task_num;
+        return false;
+    }
+    Tablet* tablet = compaction_task->tablet();
+    DataDir* data_dir = tablet->data_dir();
+    if (_data_dir_to_task_num_map[data_dir] >= config::max_compaction_task_per_disk) {
+        LOG(WARNING) << "register compaction task failed for disk's running tasks reach limit:"
+                     << config::max_compaction_task_per_disk;
+        return false;
+    }
+    auto p = _running_tasks.insert(compaction_task);
+    if (!p.second) {
+        // duplicate task
+        LOG(WARNING) << "duplicate task, compaction_task:" << compaction_task->task_id()
+                     << ", tablet:" << compaction_task->tablet()->tablet_id();
+        return false;
+    }
+    _data_dir_to_task_num_map[data_dir]++;
+    _running_tasks_num++;
+    LOG(INFO) << "registered compaction task:" << compaction_task->task_id()
+              << ", tablet:" << compaction_task->tablet()->tablet_id()
+              << ", data dir task num:" << _data_dir_to_task_num_map[data_dir] << ", data_dir:" << data_dir->path()
+              << ", running task:" << _running_tasks_num;
+    return true;
+}
+
+void CompactionManager::unregister_task(CompactionTask* compaction_task) {
+    if (!compaction_task) {
+        return;
+    }
+    LOG(INFO) << "unregister compaction task:" << compaction_task->task_id()
+              << ", tablet:" << compaction_task->tablet()->tablet_id();
+    std::lock_guard lg(_mutex);
+    auto size = _running_tasks.erase(compaction_task);
+    if (size > 0) {
+        Tablet* tablet = compaction_task->tablet();
+        DataDir* data_dir = tablet->data_dir();
+        _data_dir_to_task_num_map[data_dir]--;
+        _running_tasks_num--;
+        LOG(INFO) << "unregister compaction task:" << compaction_task->task_id()
+                  << ", tablet:" << compaction_task->tablet()->tablet_id() << ", data dir:" << data_dir->path()
+                  << ", data dir task num:" << _data_dir_to_task_num_map[data_dir]
+                  << ", running task num:" << _running_tasks_num;
+    }
+}
+
+} // namespace starrocks

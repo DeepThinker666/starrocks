@@ -1,0 +1,73 @@
+// This file is licensed under the Elastic License 2.0. Copyright 2021 StarRocks Limited.
+
+#pragma once
+
+#include <atomic>
+#include <memory>
+#include <mutex>
+#include <unordered_set>
+#include <vector>
+
+#include "storage/compaction_task.h"
+#include "storage/olap_common.h"
+#include "storage/rowset/rowset.h"
+#include "storage/tablet.h"
+
+namespace starrocks {
+
+class CompactionManager {
+public:
+    ~CompactionManager() = default;
+
+    static CompactionManager* instance();
+
+    void update_candidate(Tablet* tablet);
+
+    void insert_candidates(const std::vector<Tablet*>& tablets);
+
+    Tablet* pick_candidate();
+
+    bool register_task(CompactionTask* compaction_task);
+
+    void unregister_task(CompactionTask* compaction_task);
+
+    uint16_t running_tasks_num() { return _running_tasks_num; }
+
+    uint16_t running_tasks_num_for_dir(DataDir* data_dir) {
+        std::lock_guard lg(_mutex);
+        return _data_dir_to_task_num_map[data_dir];
+    }
+
+    uint64_t next_compaction_task_id() { return ++_next_task_id; }
+
+private:
+    CompactionManager() = default;
+    CompactionManager(const CompactionManager& compaction_manager) = delete;
+    CompactionManager(CompactionManager&& compaction_manager) = delete;
+    CompactionManager& operator=(const CompactionManager& compaction_manager) = delete;
+    CompactionManager& operator=(CompactionManager&& compaction_manager) = delete;
+
+    std::mutex _mutex;
+
+    // Comparator should compare tablet by compaction score
+    // When compaction score is equal, use tablet id(to be unique) instead
+    struct TabletCompactionComparator {
+        bool operator()(const Tablet* left, const Tablet* right) const {
+            int32_t left_score = static_cast<int32_t>(left->compaction_score() * 100);
+            int32_t right_score = static_cast<int32_t>(right->compaction_score() * 100);
+            return left_score < right_score || (left_score == right_score && left->tablet_id() < right->tablet_id());
+        }
+    };
+
+    // protect by _mutex
+    std::set<Tablet*, TabletCompactionComparator> _candidate_tablets;
+
+    std::atomic<uint64_t> _next_task_id;
+    std::atomic<uint16_t> _running_tasks_num;
+    std::unordered_set<CompactionTask*> _running_tasks;
+    std::unordered_map<DataDir*, uint16_t> _data_dir_to_task_num_map;
+
+    static std::unique_ptr<CompactionManager> _instance;
+};
+
+} // namespace starrocks

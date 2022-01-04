@@ -1,0 +1,145 @@
+// This file is licensed under the Elastic License 2.0. Copyright 2021 StarRocks Limited.
+
+#include "storage/horizontal_compaction_task.h"
+
+#include <vector>
+
+#include "column/schema.h"
+#include "common/statusor.h"
+#include "runtime/current_thread.h"
+#include "storage/olap_common.h"
+#include "storage/rowset/rowset.h"
+#include "storage/rowset/rowset_writer.h"
+#include "storage/storage_engine.h"
+#include "storage/tablet.h"
+#include "storage/vectorized/chunk_helper.h"
+#include "storage/vectorized/tablet_reader.h"
+#include "storage/vectorized/tablet_reader_params.h"
+#include "util/time.h"
+
+namespace starrocks {
+
+Status HorizontalCompactionTask::run_impl() {
+    if (should_stop()) {
+        // should add task id to log
+        LOG(INFO) << "horizontal compaction task is stopped.";
+        return Status::Cancelled("horizontal compaction task is stopped.");
+    }
+
+    _try_lock();
+    if (!_compaction_lock.owns_lock()) {
+        return Status::Cancelled("compaction lock failed");
+    }
+
+    Statistics statistics;
+    RETURN_IF_ERROR(_horizontal_compact_data(&statistics));
+
+    RETURN_IF_ERROR(_validate_compaction(statistics));
+
+    _commit_compaction();
+
+    return Status::OK();
+}
+
+Status HorizontalCompactionTask::_horizontal_compact_data(Statistics* statistics) {
+    // init
+    int64_t max_rows_per_segment =
+            CompactionUtils::get_segment_max_rows(config::max_segment_file_size, _input_rows_num, _input_rowsets_size);
+
+    std::unique_ptr<RowsetWriter> output_rs_writer;
+    RETURN_IF_ERROR(CompactionUtils::construct_output_rowset_writer(_tablet, max_rows_per_segment, _algorithm,
+                                                                    _output_version, &output_rs_writer));
+
+    vectorized::Schema schema = vectorized::ChunkHelper::convert_schema_to_format_v2(_tablet->tablet_schema());
+    vectorized::TabletReader reader(std::static_pointer_cast<Tablet>(_tablet->shared_from_this()),
+                                    output_rs_writer->version(), schema);
+    vectorized::TabletReaderParams reader_params;
+    reader_params.reader_type = ReaderType::READER_LEVEL_COMPACTION;
+    reader_params.profile = _runtime_profile.create_child("merge_rowsets");
+
+    int32_t chunk_size =
+            CompactionUtils::get_read_chunk_size(config::compaction_memory_limit_per_worker, config::vector_chunk_size,
+                                                 _input_rows_num, _input_rowsets_size, _segment_iterator_num);
+    VLOG(1) << "tablet=" << _tablet->tablet_id() << ", reader chunk size=" << chunk_size;
+    reader_params.chunk_size = chunk_size;
+    RETURN_IF_ERROR(reader.prepare());
+    RETURN_IF_ERROR(reader.open(reader_params));
+
+    // 2: read data and output compacted data
+    StatusOr<size_t> res = _compact_data(chunk_size, reader, schema, output_rs_writer.get());
+    if (!res.ok()) {
+        return res.status();
+    }
+
+    // 3: generate new rowset
+    OLAPStatus olap_status = output_rs_writer->flush();
+    if (olap_status != OLAP_SUCCESS) {
+        LOG(WARNING) << "failed to flush rowset when merging rowsets of tablet " + _tablet->tablet_id()
+                     << ", err=" << olap_status;
+        return Status::InternalError("failed to flush rowset when merging rowsets of tablet error.");
+    }
+
+    _output_rowset = output_rs_writer->build();
+    if (_output_rowset == nullptr) {
+        LOG(WARNING) << "rowset writer build failed. writer version:"
+                     << ", output_version=" << _output_version.first << "-" << _output_version.second;
+        return Status::InternalError("compaction build error.");
+    }
+
+    // collect statistics if necessary
+    if (statistics) {
+        statistics->output_rows = res.value();
+        statistics->merged_rows = reader.merged_rows();
+        statistics->filtered_rows = reader.stats().rows_del_filtered;
+    }
+
+    return Status::OK();
+}
+
+StatusOr<size_t> HorizontalCompactionTask::_compact_data(int32_t chunk_size, vectorized::TabletReader& reader,
+                                                         const vectorized::Schema& schema,
+                                                         RowsetWriter* output_rs_writer) {
+    auto status = Status::OK();
+    size_t output_rows = 0;
+    auto char_field_indexes = vectorized::ChunkHelper::get_char_field_indexes(schema);
+    auto chunk = vectorized::ChunkHelper::new_chunk(schema, chunk_size);
+    while (!should_stop()) {
+#ifndef BE_TEST
+        status = tls_thread_status.mem_tracker()->check_mem_limit("Compaction");
+        if (!status.ok()) {
+            LOG(WARNING) << "fail to execute compaction: " << status.message() << std::endl;
+            return status;
+        }
+#endif
+
+        chunk->reset();
+        status = reader.get_next(chunk.get());
+        if (!status.ok()) {
+            if (status.is_end_of_file()) {
+                break;
+            } else {
+                LOG(WARNING) << "compaction reader get next error. tablet=" << _tablet->tablet_id()
+                             << ", err=" << status.to_string();
+                return Status::InternalError(fmt::format("reader get_next error: {}", status.to_string()));
+            }
+        }
+
+        vectorized::ChunkHelper::padding_char_columns(char_field_indexes, schema, _tablet->tablet_schema(),
+                                                      chunk.get());
+
+        OLAPStatus olap_status = output_rs_writer->add_chunk(*chunk);
+        if (olap_status != OLAP_SUCCESS) {
+            LOG(WARNING) << "writer add_chunk error, err=" << olap_status;
+            return Status::InternalError("writer add_chunk error.");
+        }
+        output_rows += chunk->num_rows();
+    }
+
+    if (should_stop()) {
+        LOG(INFO) << "horizontal compaction task is stopped.";
+        return Status::Cancelled("horizontal compaction task is stopped.");
+    }
+    return output_rows;
+}
+
+} // namespace starrocks

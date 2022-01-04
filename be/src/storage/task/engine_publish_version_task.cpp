@@ -23,6 +23,7 @@
 
 #include <map>
 
+#include "storage/compaction_manager.h"
 #include "storage/data_dir.h"
 #include "storage/rowset/rowset_meta_manager.h"
 #include "storage/tablet_manager.h"
@@ -116,6 +117,10 @@ OLAPStatus EnginePublishVersionTask::finish() {
                     _error_tablet_ids->push_back(tablet_info.tablet_id);
                     res = publish_status;
                     continue;
+                }
+                if (tablet->need_compaction()) {
+                    // 考虑异步化
+                    CompactionManager::instance()->update_candidate(tablet.get());
                 }
             }
             partition_related_tablet_infos.erase(tablet_info);

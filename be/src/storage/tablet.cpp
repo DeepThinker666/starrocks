@@ -33,6 +33,10 @@
 
 #include "runtime/current_thread.h"
 #include "runtime/exec_env.h"
+#include "storage/compaction_manager.h"
+#include "storage/compaction_policy.h"
+#include "storage/compaction_task.h"
+#include "storage/level_compaction_policy.h"
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"
 #include "storage/rowset/rowset_factory.h"
@@ -187,6 +191,11 @@ Status Tablet::revise_tablet_meta(MemTracker* mem_tracker, const std::vector<Row
         _rs_version_map[version] = std::move(rowset);
     }
 
+    update_tablet_compaction_context();
+    if (need_compaction()) {
+        CompactionManager::instance()->update_candidate(this);
+    }
+
     // reconstruct from tablet meta
     _timestamped_version_tracker.construct_versioned_tracker(_tablet_meta->all_rs_metas());
 
@@ -260,6 +269,13 @@ void Tablet::modify_rowsets(const std::vector<RowsetSharedPtr>& to_add, const st
     }
 
     _tablet_meta->modify_rs_metas(rs_metas_to_add, rs_metas_to_delete);
+
+    // TODO: optimize this
+    // must be put after modify_rs_metas
+    update_tablet_compaction_context();
+    if (need_compaction()) {
+        CompactionManager::instance()->update_candidate(this);
+    }
 
     // add rs_metas_to_delete to tracker
     _timestamped_version_tracker.add_stale_path_version(rs_metas_to_delete);
@@ -336,6 +352,7 @@ Status Tablet::add_inc_rowset(const RowsetSharedPtr& rowset) {
     _inc_rs_version_map[rowset->version()] = rowset;
 
     _timestamped_version_tracker.add_version(rowset->version());
+    update_tablet_compaction_context();
 
     RETURN_IF_ERROR(_tablet_meta->add_inc_rs_meta(rowset->rowset_meta()));
 
@@ -597,8 +614,7 @@ bool Tablet::check_migrate(const TabletSharedPtr& tablet) {
     return false;
 }
 
-bool Tablet::can_do_compaction() {
-    std::shared_lock rdlock(_meta_lock);
+bool Tablet::_check_versions_completeness() {
     const RowsetSharedPtr lastest_delta = rowset_with_max_version();
     if (lastest_delta == nullptr) {
         return false;
@@ -606,6 +622,11 @@ bool Tablet::can_do_compaction() {
 
     Version test_version = Version(0, lastest_delta->end_version());
     return capture_consistent_versions(test_version, nullptr).ok();
+}
+
+bool Tablet::can_do_compaction() {
+    std::shared_lock rdlock(_meta_lock);
+    return _check_versions_completeness();
 }
 
 const uint32_t Tablet::calc_cumulative_compaction_score() const {
@@ -1160,6 +1181,142 @@ Version Tablet::max_version() const {
     } else {
         return _tablet_meta->max_version();
     }
+}
+
+void Tablet::update_tablet_compaction_context() {
+    if (_updates || _state == TABLET_NOTREADY || !is_used() || !init_succeeded()) {
+        _need_compaction = false;
+        return;
+    }
+    if (!_check_versions_completeness()) {
+        // when versions are not complete, just return
+        return;
+    }
+    // reset compaction related variables
+    // 思考能够复用compaction context
+    _need_compaction = false;
+    _compaction_score = 0;
+    _current_level = -1;
+    std::unique_ptr<CompactionContext> compaction_context = _get_compaction_context();
+    std::unique_ptr<CompactionPolicy> compaction_policy =
+            CompactionUtils::create_compaction_policy(compaction_context.get());
+    // 需要计算tablet中各层的compaction score，并且保存在compaction context中
+    _need_compaction = compaction_policy->need_compaction();
+    if (_need_compaction) {
+        _compaction_score = compaction_policy->compaction_score();
+        _current_level = compaction_context->current_level;
+    }
+}
+
+bool Tablet::_is_compacted_singleton(Rowset* rowset) {
+    DCHECK(rowset) << "invalid rowset";
+    return rowset->num_segments() > 1 && rowset->rowset_meta()->segments_overlap() == NONOVERLAPPING;
+}
+
+// protected by meta lock
+std::unique_ptr<CompactionContext> Tablet::_get_compaction_context() {
+    // construct compaction context from tablet
+    std::unique_ptr<CompactionContext> compaction_context(new CompactionContext());
+    for (auto& it : _rs_version_map) {
+        if (it.second->start_version() == it.second->end_version()) {
+            // level 0
+            compaction_context->rowset_levels[0].insert(it.second.get());
+        } else if (it.second->start_version() != 0) {
+            // level 1
+            compaction_context->rowset_levels[1].insert(it.second.get());
+        } else {
+            // level 2
+            compaction_context->rowset_levels[2].insert(it.second.get());
+        }
+    }
+    compaction_context->tablet = this;
+
+    // For leading 'delete' or 'compacted' rowset in level 0, move it to level 1
+    // because they should be compacted by base compaction
+    //
+    // TODO: 需要加上时间限制
+    auto& level_0_rowsets = compaction_context->rowset_levels[0];
+    auto& level_1_rowsets = compaction_context->rowset_levels[1];
+    size_t not_delete_index = 0;
+    for (auto iter = level_0_rowsets.begin(); iter != level_0_rowsets.end();) {
+        if (version_for_delete_predicate((*iter)->version())) {
+            // move 'delete' or 'compacted' rowset to level 1
+            Rowset* rowset = *iter;
+            iter = level_0_rowsets.erase(iter);
+            level_1_rowsets.insert(rowset);
+            LOG(INFO) << "move delete rowset:" << rowset->version() << " from level 0 to level 1";
+        } else if (not_delete_index == 0 && !(*iter)->rowset_meta()->is_segments_overlapping()) {
+            // rowsets like: nonoverlapping singleton, delete singleton
+            // the leading nonoverlapping singleton should be moved to level 1
+            auto next_iter = iter;
+            next_iter++;
+            if (next_iter == level_0_rowsets.end()) {
+                break;
+            }
+            auto next_rowset = *next_iter;
+            LOG(INFO) << "next rowset:" << next_rowset->version() << ", current rowset:" << (*iter)->version();
+            if (version_for_delete_predicate(next_rowset->version())) {
+                Rowset* rowset = *iter;
+                iter = level_0_rowsets.erase(iter);
+                level_1_rowsets.insert(rowset);
+                LOG(INFO) << "move leading nonoverlapping singleton rowset:" << rowset->version()
+                          << " before delete version from level 0 to level 1";
+            } else {
+                break;
+            }
+        } else {
+            not_delete_index++;
+            break;
+        }
+    }
+    if (_need_compaction) {
+        compaction_context->current_level = _current_level;
+    }
+    return compaction_context;
+}
+
+double Tablet::compaction_score() const {
+    if (!_need_compaction) {
+        return 0;
+    }
+    return _compaction_score;
+}
+
+std::shared_ptr<CompactionTask> Tablet::get_compaction(bool create_if_not_exist) {
+    std::unique_lock wrlock(_meta_lock);
+    if (!_need_compaction) {
+        LOG(INFO) << "no need to create compaction task, _need_compaction:" << _need_compaction;
+        return nullptr;
+    }
+
+    if (!_compaction_task && create_if_not_exist) {
+        LOG(INFO) << "no compaction task. try to create one.";
+        std::unique_ptr<CompactionContext> compaction_context = _get_compaction_context();
+        std::unique_ptr<CompactionPolicy> compaction_policy =
+                CompactionUtils::create_compaction_policy(compaction_context.get());
+        wrlock.unlock();
+        _compaction_task = compaction_policy->create_compaction();
+    }
+    return _compaction_task;
+}
+
+void Tablet::stop_compaction() {
+    std::unique_lock wrlock(_meta_lock);
+    if (!_compaction_task) {
+        return;
+    }
+    LOG(INFO) << "compaction task:" << _compaction_task->task_id()
+              << ", tablet id:" << _compaction_task->tablet()->tablet_id() << " was stopped";
+    _compaction_task->stop();
+    _compaction_task.reset();
+}
+
+void Tablet::reset_compaction() {
+    std::unique_lock wrlock(_meta_lock);
+    if (_compaction_task) {
+        LOG(INFO) << "reset compaction task:" << _compaction_task->task_id() << ", tablet:" << tablet_id();
+    }
+    _compaction_task.reset();
 }
 
 } // namespace starrocks
