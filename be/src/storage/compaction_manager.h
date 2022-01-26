@@ -13,6 +13,7 @@
 #include "storage/olap_common.h"
 #include "storage/rowset/rowset.h"
 #include "storage/tablet.h"
+#include "util/priority_thread_pool.hpp"
 
 namespace starrocks {
 
@@ -49,7 +50,7 @@ public:
     void print_log();
 
 private:
-    CompactionManager() = default;
+    CompactionManager() : _update_candidate_pool("up_candidates", 1, 100000) {}
     CompactionManager(const CompactionManager& compaction_manager) = delete;
     CompactionManager(CompactionManager&& compaction_manager) = delete;
     CompactionManager& operator=(const CompactionManager& compaction_manager) = delete;
@@ -77,6 +78,7 @@ private:
     std::unordered_map<uint8_t, uint16_t> _level_to_task_num_map;
     std::thread _log_thread;
     bool _log_thread_inited = false;
+    PriorityThreadPool _update_candidate_pool;
 
     static std::unique_ptr<CompactionManager> _instance;
 };

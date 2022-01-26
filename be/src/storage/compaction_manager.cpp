@@ -27,10 +27,17 @@ void CompactionManager::print_log() {
 }
 
 void CompactionManager::update_candidate(Tablet* tablet) {
-    std::lock_guard lg(_mutex);
-    _candidate_tablets.erase(tablet);
-    _candidate_tablets.insert(tablet);
-    LOG(INFO) << "current _candidate_tablets size:" << _candidate_tablets.size();
+    PriorityThreadPool::Task task;
+    task.work_function = [tablet, this] {
+        std::lock_guard lg(_mutex);
+        _candidate_tablets.erase(tablet);
+        _candidate_tablets.insert(tablet);
+        LOG(INFO) << "current _candidate_tablets size:" << _candidate_tablets.size();
+    };
+    bool ret = _update_candidate_pool.try_offer(task);
+    if (!ret) {
+        LOG(WARNING) << "update candidate failed for queue is full. the reason maybe dead lock";
+    }
 }
 
 void CompactionManager::insert_candidates(const std::vector<Tablet*>& tablets) {
@@ -103,7 +110,7 @@ bool CompactionManager::register_task(CompactionTask* compaction_task) {
     LOG(INFO) << "registered compaction task:" << compaction_task->task_id()
               << ", tablet:" << compaction_task->tablet()->tablet_id()
               << ", data dir task num:" << _data_dir_to_task_num_map[data_dir] << ", data_dir:" << data_dir->path()
-              << ", running task:" << _running_tasks_num << ", compaction level:" << compaction_task->compaction_level()
+              << ", running task:" << _running_tasks_num << ", compaction level:" << (int)compaction_task->compaction_level()
               << ", level num:" << _level_to_task_num_map[compaction_task->compaction_level()];
     return true;
 }
@@ -126,7 +133,7 @@ void CompactionManager::unregister_task(CompactionTask* compaction_task) {
                   << ", tablet:" << compaction_task->tablet()->tablet_id() << ", data dir:" << data_dir->path()
                   << ", data dir task num:" << _data_dir_to_task_num_map[data_dir]
                   << ", running task num:" << _running_tasks_num
-                  << ", compaction level:" << compaction_task->compaction_level()
+                  << ", compaction level:" << (int)compaction_task->compaction_level()
                   << ", level num:" << _level_to_task_num_map[compaction_task->compaction_level()];
     }
 }

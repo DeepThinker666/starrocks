@@ -1284,7 +1284,7 @@ double Tablet::compaction_score() const {
 }
 
 std::shared_ptr<CompactionTask> Tablet::get_compaction(bool create_if_not_exist) {
-    std::unique_lock wrlock(_meta_lock);
+    std::shared_lock wrlock(_meta_lock);
     if (!_compaction_context) {
         LOG(INFO) << "no need to create compaction task for _compaction_context is null";
         return nullptr;
