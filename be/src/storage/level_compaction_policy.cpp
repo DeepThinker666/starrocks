@@ -270,8 +270,8 @@ double LevelCompactionPolicy::_get_level_1_compaction_score() {
         int64_t base_creation_time = base_rowset->creation_time();
         int64_t interval_since_last_base_compaction = time(nullptr) - base_creation_time;
         if (interval_since_last_base_compaction > config::base_compaction_interval_seconds_since_last_operation &&
-            (_compaction_context->rowset_levels[1].size() > 1
-            || (_compaction_context->rowset_levels[1].size() == 1 && !base_rowset->empty()))) {
+            (_compaction_context->rowset_levels[1].size() > 1 ||
+             (_compaction_context->rowset_levels[1].size() == 1 && !base_rowset->empty()))) {
             // the tablet is with rowsets: [0-x], [x+1-y], and [0-x] is empty.
             // in this situation, no need to do base compaction.
             LOG(INFO) << "satisfy the base compaction policy. tablet=" << _compaction_context->tablet->full_name()

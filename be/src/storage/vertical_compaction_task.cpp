@@ -17,6 +17,8 @@
 #include "storage/vectorized/row_source_mask.h"
 #include "storage/vectorized/tablet_reader.h"
 #include "storage/vectorized/tablet_reader_params.h"
+#include "util/time.h"
+#include "util/trace.h"
 
 namespace starrocks {
 
@@ -37,31 +39,43 @@ Status VerticalCompactionTask::run_impl() {
     if (!_compaction_lock.owns_lock()) {
         return Status::Cancelled("compaction lock failed");
     }
+    TRACE("[Compaction] got compaction lock");
 
     Statistics statistics;
     RETURN_IF_ERROR(_vertical_compaction_data(&statistics));
+    TRACE_COUNTER_INCREMENT("merged_rows", statistics.merged_rows);
+    TRACE_COUNTER_INCREMENT("filtered_rows", statistics.filtered_rows);
+    TRACE_COUNTER_INCREMENT("output_rows", statistics.output_rows);
 
     RETURN_IF_ERROR(_validate_compaction(statistics));
+    TRACE("[Compaction] compaction validated");
 
     _commit_compaction();
+    TRACE("[Compaction] compaction committed");
+
     return Status::OK();
 }
 
 Status VerticalCompactionTask::_vertical_compaction_data(Statistics* statistics) {
-    int64_t max_rows_per_segment =
-            CompactionUtils::get_segment_max_rows(config::max_segment_file_size, _input_rows_num, _input_rowsets_size);
+    TRACE("[Compaction] start vertical comapction data");
+    int64_t max_rows_per_segment = CompactionUtils::get_segment_max_rows(
+            config::max_segment_file_size, _task_info.input_rows_num, _task_info.input_rowsets_size);
 
     std::unique_ptr<RowsetWriter> output_rs_writer;
-    RETURN_IF_ERROR(CompactionUtils::construct_output_rowset_writer(_tablet, max_rows_per_segment, _algorithm,
-                                                                    _output_version, &output_rs_writer));
+    RETURN_IF_ERROR(CompactionUtils::construct_output_rowset_writer(_tablet, max_rows_per_segment, _task_info.algorithm,
+                                                                    _task_info.output_version, &output_rs_writer));
 
     std::vector<std::vector<uint32_t>> column_groups;
     CompactionUtils::split_column_into_groups(_tablet->num_columns(), _tablet->num_key_columns(),
                                               config::vertical_compaction_max_columns_per_group, &column_groups);
+    _task_info.column_group_size = column_groups.size();
 
     auto mask_buffer =
             std::make_unique<vectorized::RowSourceMaskBuffer>(_tablet->tablet_id(), _tablet->data_dir()->path());
     auto source_masks = std::make_unique<std::vector<vectorized::RowSourceMask>>();
+    TRACE("[Compaction] compaction prepare finished, max_rows_per_segment:$0, column groups "
+          "size:$1",
+          max_rows_per_segment, column_groups.size());
 
     for (size_t i = 0; i < column_groups.size(); ++i) {
         if (should_stop()) {
@@ -75,6 +89,7 @@ Status VerticalCompactionTask::_vertical_compaction_data(Statistics* statistics)
         RETURN_IF_ERROR(_compact_column_group(is_key, i, column_groups[i], output_rs_writer.get(), mask_buffer.get(),
                                               source_masks.get(), statistics));
     }
+    TRACE("[Compaction] data compacted");
 
     OLAPStatus olap_status = output_rs_writer->final_flush();
     if (olap_status != OLAP_SUCCESS) {
@@ -82,13 +97,26 @@ Status VerticalCompactionTask::_vertical_compaction_data(Statistics* statistics)
                      << ", err=" << olap_status;
         return Status::InternalError("failed to final flush rowset when merging rowsets of tablet error.");
     }
+    TRACE("[Compaction] writer flushed");
 
     _output_rowset = output_rs_writer->build();
     if (_output_rowset == nullptr) {
         LOG(WARNING) << "rowset writer build failed. writer version:" << output_rs_writer->version()
-                     << ", output_version=" << _output_version.first << "-" << _output_version.second;
+                     << ", output_version=" << _task_info.output_version.first << "-"
+                     << _task_info.output_version.second;
         return Status::InternalError("compaction build error.");
     }
+    _task_info.output_num_rows = _output_rowset->num_rows();
+    _task_info.output_segments_num = _output_rowset->num_segments();
+    _task_info.output_rowset_size = _output_rowset->data_disk_size();
+    if (statistics) {
+        _task_info.filtered_rows = statistics->filtered_rows;
+        _task_info.merged_rows = statistics->merged_rows;
+    }
+    TRACE_COUNTER_INCREMENT("output_rowset_data_size", _output_rowset->data_disk_size());
+    TRACE_COUNTER_INCREMENT("output_segments_num", _output_rowset->num_segments());
+    TRACE("[Compaction] output rowset built");
+
     return Status::OK();
 }
 
@@ -166,7 +194,7 @@ StatusOr<int32_t> VerticalCompactionTask::_calculate_chunk_size_for_column_group
     }
     int32_t chunk_size =
             CompactionUtils::get_read_chunk_size(config::compaction_memory_limit_per_worker, config::vector_chunk_size,
-                                                 total_num_rows, total_mem_footprint, _segment_iterator_num);
+                                                 total_num_rows, total_mem_footprint, _task_info.input_segments_num);
     return chunk_size;
 }
 
@@ -181,7 +209,8 @@ StatusOr<size_t> VerticalCompactionTask::_compact_data(bool is_key, int32_t chun
     auto char_field_indexes = vectorized::ChunkHelper::get_char_field_indexes(schema);
 
     Status status = Status::OK();
-
+    size_t column_group_del_filtered_rows = 0;
+    size_t column_group_merged_rows = 0;
     while (!should_stop()) {
 #ifndef BE_TEST
         status = tls_thread_status.mem_tracker()->check_mem_limit("Compaction");
@@ -212,6 +241,11 @@ StatusOr<size_t> VerticalCompactionTask::_compact_data(bool is_key, int32_t chun
                          << ", err=" << olap_status;
             return Status::InternalError("writer add chunk by columns error.");
         }
+        _task_info.total_output_num_rows += chunk->num_rows();
+        _task_info.total_del_filtered_rows += reader.stats().rows_del_filtered - column_group_del_filtered_rows;
+        _task_info.total_merged_rows += reader.merged_rows() - column_group_merged_rows;
+        column_group_del_filtered_rows = reader.stats().rows_del_filtered;
+        column_group_merged_rows = reader.merged_rows();
 
         if (is_key) {
             output_rows += chunk->num_rows();

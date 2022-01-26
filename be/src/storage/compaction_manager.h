@@ -5,6 +5,7 @@
 #include <atomic>
 #include <memory>
 #include <mutex>
+#include <thread>
 #include <unordered_set>
 #include <vector>
 
@@ -40,6 +41,8 @@ public:
 
     uint64_t next_compaction_task_id() { return ++_next_task_id; }
 
+    void print_log();
+
 private:
     CompactionManager() = default;
     CompactionManager(const CompactionManager& compaction_manager) = delete;
@@ -66,6 +69,8 @@ private:
     std::atomic<uint16_t> _running_tasks_num;
     std::unordered_set<CompactionTask*> _running_tasks;
     std::unordered_map<DataDir*, uint16_t> _data_dir_to_task_num_map;
+    std::thread _log_thread;
+    bool _log_thread_inited = false;
 
     static std::unique_ptr<CompactionManager> _instance;
 };

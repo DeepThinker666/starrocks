@@ -191,9 +191,11 @@ Status Tablet::revise_tablet_meta(MemTracker* mem_tracker, const std::vector<Row
         _rs_version_map[version] = std::move(rowset);
     }
 
-    update_tablet_compaction_context();
-    if (need_compaction()) {
-        CompactionManager::instance()->update_candidate(this);
+    if (config::enable_new_compaction_framework) {
+        update_tablet_compaction_context();
+        if (need_compaction()) {
+            CompactionManager::instance()->update_candidate(this);
+        }
     }
 
     // reconstruct from tablet meta
@@ -270,11 +272,12 @@ void Tablet::modify_rowsets(const std::vector<RowsetSharedPtr>& to_add, const st
 
     _tablet_meta->modify_rs_metas(rs_metas_to_add, rs_metas_to_delete);
 
-    // TODO: optimize this
     // must be put after modify_rs_metas
-    update_tablet_compaction_context();
-    if (need_compaction()) {
-        CompactionManager::instance()->update_candidate(this);
+    if (config::enable_new_compaction_framework) {
+        update_tablet_compaction_context();
+        if (need_compaction()) {
+            CompactionManager::instance()->update_candidate(this);
+        }
     }
 
     // add rs_metas_to_delete to tracker

@@ -99,7 +99,7 @@ Tablet* CompactionScheduler::try_get_next_tablet() {
             continue;
         }
 
-        if (tablet->tablet_state() != RUNNING) {
+        if (tablet->tablet_state() != TABLET_RUNNING) {
             LOG(WARNING) << "skip tablet:" << tablet->tablet_id() << " for tablet state is not RUNNING";
             continue;
         }
@@ -137,6 +137,7 @@ Tablet* CompactionScheduler::try_get_next_tablet() {
         }
 
         // create a new compaction task
+        bool need_reset_task = true;
         compaction_task = tablet->get_compaction(true);
         if (compaction_task) {
             // create new compaction task successfully
@@ -176,11 +177,11 @@ Tablet* CompactionScheduler::try_get_next_tablet() {
                 tmp_tablets.pop_back();
                 break;
             }
-            // the running tasks num of tablet's data dir exceeds the limit
-            // so can not schedule this compaction, try next
-            tablet->reset_compaction();
         } else {
             LOG(INFO) << "skip tablet:" << tablet->tablet_id() << " for create compaction task failed.";
+        }
+        if (need_reset_task) {
+            tablet->reset_compaction();
         }
     }
     LOG(INFO) << "pick next candidates. tmp tablets size:" << tmp_tablets.size();

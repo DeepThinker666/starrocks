@@ -22,6 +22,17 @@ enum CompactionAlgorithm {
     VERTICAL_COMPACTION = 1
 };
 
+inline const char* ToString(CompactionAlgorithm v) {
+    switch (v) {
+    case HORIZONTAL_COMPACTION:
+        return "HORIZONTAL_COMPACTION";
+    case VERTICAL_COMPACTION:
+        return "VERTICAL_COMPACTION";
+    default:
+        return "[Unknown CompactionAlgorithm]";
+    }
+}
+
 struct Statistics {
     // number of rows written to the destination rowset after merge
     int64_t output_rows = 0;

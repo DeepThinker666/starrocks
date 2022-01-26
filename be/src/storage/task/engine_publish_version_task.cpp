@@ -118,8 +118,7 @@ OLAPStatus EnginePublishVersionTask::finish() {
                     res = publish_status;
                     continue;
                 }
-                if (tablet->need_compaction()) {
-                    // 考虑异步化
+                if (config::enable_new_compaction_framework && tablet->need_compaction()) {
                     CompactionManager::instance()->update_candidate(tablet.get());
                 }
             }

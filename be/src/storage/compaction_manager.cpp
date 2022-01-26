@@ -3,12 +3,27 @@
 #include "storage/compaction_manager.h"
 
 #include "storage/data_dir.h"
+#include "util/thread.h"
 namespace starrocks {
 
 std::unique_ptr<CompactionManager> CompactionManager::_instance(new CompactionManager());
 
 CompactionManager* CompactionManager::instance() {
     return _instance.get();
+}
+
+void CompactionManager::print_log() {
+    while (true) {
+        {
+            std::lock_guard lg(_mutex);
+            LOG(INFO) << "there are " << _running_tasks.size() << " compaction tasks";
+            for (auto& compaction_task : _running_tasks) {
+                LOG(INFO) << compaction_task->get_task_info();
+            }
+        }
+        LOG(INFO) << "task info printed";
+        sleep(2);
+    }
 }
 
 void CompactionManager::update_candidate(Tablet* tablet) {
@@ -45,6 +60,14 @@ bool CompactionManager::register_task(CompactionTask* compaction_task) {
     LOG(INFO) << "register compaction task:" << compaction_task->task_id()
               << ", tablet:" << compaction_task->tablet()->tablet_id();
     std::lock_guard lg(_mutex);
+    if (!_log_thread_inited) {
+        _log_thread = std::thread([this]() {
+            LOG(INFO) << "start compaction manager log printer";
+            print_log();
+        });
+        Thread::set_thread_name(_log_thread, "compaction_log");
+        _log_thread_inited = true;
+    }
     if (_running_tasks.size() >= config::max_compaction_task_num) {
         LOG(WARNING) << "register compaction task failed for running tasks reach limit:"
                      << config::max_compaction_task_num;

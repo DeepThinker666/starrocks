@@ -3,6 +3,7 @@
 #include "storage/compaction_task_factory.h"
 
 #include "column/schema.h"
+#include "runtime/exec_env.h"
 #include "storage/compaction_manager.h"
 #include "storage/compaction_task.h"
 #include "storage/compaction_utils.h"
@@ -43,18 +44,25 @@ std::shared_ptr<CompactionTask> CompactionTaskFactory::create_compaction_task() 
     // init the compaction task
     uint32_t input_rows_num = 0;
     size_t input_rowsets_size = 0;
+    uint32_t input_segments_num = 0;
     for (auto& rowset : _input_rowsets) {
         input_rows_num += rowset->num_rows();
         input_rowsets_size += rowset->data_disk_size();
+        input_segments_num += rowset->num_segments();
     }
     compaction_task->set_task_id(CompactionManager::instance()->next_compaction_task_id());
     compaction_task->set_compaction_level(_compaction_level);
     compaction_task->set_input_rows_num(input_rows_num);
     compaction_task->set_input_rowsets(std::move(_input_rowsets));
     compaction_task->set_input_rowsets_size(input_rowsets_size);
+    compaction_task->set_input_segments_num(input_segments_num);
     compaction_task->set_output_version(_output_version);
     compaction_task->set_tablet(_tablet);
     compaction_task->set_segment_iterator_num(segment_iterator_num);
+    std::unique_ptr<MemTracker> mem_tracker = std::make_unique<MemTracker>(
+            MemTracker::COMPACTION, -1, "Compaction-" + std::to_string(compaction_task->task_id()),
+            ExecEnv::GetInstance()->compaction_mem_tracker());
+    compaction_task->set_mem_tracker(mem_tracker.release());
     return compaction_task;
 }
 
