@@ -43,21 +43,9 @@ void CompactionScheduler::schedule() {
             std::shared_ptr<CompactionTask> compaction_task = selected->get_compaction(true);
             PriorityThreadPool::Task task;
             task.work_function = [compaction_task] { compaction_task->start(); };
-            // make this configurable
             LOG(INFO) << "input rows num:" << compaction_task->input_rows_num()
                       << ", rowsets size:" << compaction_task->input_rowsets_size();
-            if (compaction_task->input_rows_num() > 1000000 ||
-                compaction_task->input_rowsets_size() > 1024 * 1024 * 1024) {
-                // submit task to low priority pool
-                LOG(INFO) << "submit compaction task to low priority pool. tablet:"
-                          << compaction_task->tablet()->tablet_id();
-                _low_priority_compaction_pool.offer(task);
-            } else {
-                // submit task to normal pool
-                LOG(INFO) << "submit compaction task to normal priority pool. tablet:"
-                          << compaction_task->tablet()->tablet_id();
-                _normal_compaction_pool.offer(task);
-            }
+            _compaction_pool.offer(task);
         }
     }
 }
@@ -81,6 +69,10 @@ void CompactionScheduler::_wait_to_run() {
 
 Tablet* CompactionScheduler::try_get_next_tablet() {
     LOG(INFO) << "try to get next qualified tablet.";
+    if (!_can_schedule_next()) {
+        LOG(INFO) << "_can_schedule_next is false. skip";
+        return nullptr;
+    }
     // tmp_tablets save the tmp picked candidates tablets
     std::vector<Tablet*> tmp_tablets;
     Tablet* tablet = nullptr;
@@ -146,6 +138,12 @@ Tablet* CompactionScheduler::try_get_next_tablet() {
             // TODO: can be optimized to use just one lock
             int64_t last_failure_ms = 0;
             if (compaction_task->compaction_level() == 0) {
+                uint16_t level_num = CompactionManager::instance()->running_tasks_num_for_level(0);
+                if (config::max_level_0_compaction_task >= 0 && level_num >= config::max_level_0_compaction_task) {
+                    LOG(INFO) << "skip tablet:" << tablet->tablet_id()
+                              << " for level 0 limit:" << config::max_level_0_compaction_task;
+                    continue;
+                }
                 std::unique_lock lk(tablet->get_cumulative_lock(), std::try_to_lock);
                 if (!lk.owns_lock()) {
                     LOG(INFO) << "skip tablet:" << tablet->tablet_id() << " for lock";
@@ -153,6 +151,12 @@ Tablet* CompactionScheduler::try_get_next_tablet() {
                 }
                 last_failure_ms = tablet->last_cumu_compaction_failure_time();
             } else {
+                uint16_t level_num = CompactionManager::instance()->running_tasks_num_for_level(1);
+                if (config::max_level_1_compaction_task >= 0 && level_num >= config::max_level_1_compaction_task) {
+                    LOG(INFO) << "skip tablet:" << tablet->tablet_id()
+                              << " for level 1 limit:" << config::max_level_1_compaction_task;
+                    continue;
+                }
                 std::unique_lock lk(tablet->get_base_lock(), std::try_to_lock);
                 if (!lk.owns_lock()) {
                     LOG(INFO) << "skip tablet:" << tablet->tablet_id() << " for lock";
@@ -166,17 +170,21 @@ Tablet* CompactionScheduler::try_get_next_tablet() {
                           << ", last_failure_time_ms=" << last_failure_ms << ", tablet_id=" << tablet->tablet_id();
                 continue;
             }
+
             DataDir* data_dir = tablet->data_dir();
             // control the concurrent running tasks's limit
             // just try best here for that there may be concurrent CompactionSchedulers
             // hard limit will be checked when CompactionManager::register()
             uint16_t num = CompactionManager::instance()->running_tasks_num_for_dir(data_dir);
-            if (num < config::max_compaction_task_per_disk) {
-                // found a qualified tablet
-                // qualified tablet will be removed from candidates
-                tmp_tablets.pop_back();
-                break;
+            if (config::max_compaction_task_per_disk >= 0 && num >= config::max_compaction_task_per_disk) {
+                LOG(INFO) << "skip tablet:" << tablet->tablet_id() << " for limit of compaction task per disk";
+                continue;
             }
+            // found a qualified tablet
+            // qualified tablet will be removed from candidates
+            need_reset_task = false;
+            tmp_tablets.pop_back();
+            break;
         } else {
             LOG(INFO) << "skip tablet:" << tablet->tablet_id() << " for create compaction task failed.";
         }

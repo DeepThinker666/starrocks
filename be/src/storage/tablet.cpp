@@ -193,7 +193,7 @@ Status Tablet::revise_tablet_meta(MemTracker* mem_tracker, const std::vector<Row
 
     if (config::enable_new_compaction_framework) {
         update_tablet_compaction_context();
-        if (need_compaction()) {
+        if (need_compaction_unlock()) {
             CompactionManager::instance()->update_candidate(this);
         }
     }
@@ -275,7 +275,7 @@ void Tablet::modify_rowsets(const std::vector<RowsetSharedPtr>& to_add, const st
     // must be put after modify_rs_metas
     if (config::enable_new_compaction_framework) {
         update_tablet_compaction_context();
-        if (need_compaction()) {
+        if (need_compaction_unlock()) {
             CompactionManager::instance()->update_candidate(this);
         }
     }
@@ -355,7 +355,12 @@ Status Tablet::add_inc_rowset(const RowsetSharedPtr& rowset) {
     _inc_rs_version_map[rowset->version()] = rowset;
 
     _timestamped_version_tracker.add_version(rowset->version());
-    update_tablet_compaction_context();
+    if (config::enable_new_compaction_framework) {
+        update_tablet_compaction_context();
+        if (need_compaction_unlock()) {
+            CompactionManager::instance()->update_candidate(this);
+        }
+    }
 
     RETURN_IF_ERROR(_tablet_meta->add_inc_rs_meta(rowset->rowset_meta()));
 
@@ -1188,26 +1193,21 @@ Version Tablet::max_version() const {
 
 void Tablet::update_tablet_compaction_context() {
     if (_updates || _state == TABLET_NOTREADY || !is_used() || !init_succeeded()) {
-        _need_compaction = false;
+        _compaction_context.reset();
         return;
     }
     if (!_check_versions_completeness()) {
+        _compaction_context.reset();
         // when versions are not complete, just return
         return;
     }
-    // reset compaction related variables
-    // 思考能够复用compaction context
-    _need_compaction = false;
-    _compaction_score = 0;
-    _current_level = -1;
     std::unique_ptr<CompactionContext> compaction_context = _get_compaction_context();
     std::unique_ptr<CompactionPolicy> compaction_policy =
             CompactionUtils::create_compaction_policy(compaction_context.get());
-    // 需要计算tablet中各层的compaction score，并且保存在compaction context中
-    _need_compaction = compaction_policy->need_compaction();
-    if (_need_compaction) {
-        _compaction_score = compaction_policy->compaction_score();
-        _current_level = compaction_context->current_level;
+    if (compaction_policy->need_compaction()) {
+        _compaction_context.swap(compaction_context);
+    } else {
+        _compaction_context.reset();
     }
 }
 
@@ -1272,32 +1272,30 @@ std::unique_ptr<CompactionContext> Tablet::_get_compaction_context() {
             break;
         }
     }
-    if (_need_compaction) {
-        compaction_context->current_level = _current_level;
-    }
     return compaction_context;
 }
 
 double Tablet::compaction_score() const {
-    if (!_need_compaction) {
+    std::unique_lock wrlock(_meta_lock);
+    if (!_compaction_context) {
         return 0;
     }
-    return _compaction_score;
+    return _compaction_context->get_score();
 }
 
 std::shared_ptr<CompactionTask> Tablet::get_compaction(bool create_if_not_exist) {
     std::unique_lock wrlock(_meta_lock);
-    if (!_need_compaction) {
-        LOG(INFO) << "no need to create compaction task, _need_compaction:" << _need_compaction;
+    if (!_compaction_context) {
+        LOG(INFO) << "no need to create compaction task for _compaction_context is null";
         return nullptr;
     }
 
     if (!_compaction_task && create_if_not_exist) {
         LOG(INFO) << "no compaction task. try to create one.";
-        std::unique_ptr<CompactionContext> compaction_context = _get_compaction_context();
+        std::unique_ptr<CompactionContext> compaction_context =
+                std::make_unique<CompactionContext>(*_compaction_context);
         std::unique_ptr<CompactionPolicy> compaction_policy =
                 CompactionUtils::create_compaction_policy(compaction_context.get());
-        wrlock.unlock();
         _compaction_task = compaction_policy->create_compaction();
     }
     return _compaction_task;

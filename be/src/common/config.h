@@ -313,6 +313,9 @@ CONF_mBool(enable_compaction, "true");
 CONF_mBool(enable_new_compaction_framework, "true");
 CONF_mInt32(max_compaction_task_num, "2");
 CONF_mInt32(max_compaction_task_per_disk, "1");
+// < 0 means no limit
+CONF_mInt32(max_level_0_compaction_task, "-1");
+CONF_mInt32(max_level_1_compaction_task, "1");
 // 5GB
 CONF_mInt64(min_level_0_compaction_size, "5368709120");
 // 20GB

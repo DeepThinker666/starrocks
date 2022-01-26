@@ -248,7 +248,14 @@ public:
 
     // if there is _compaction_task running
     // do not do compaction
-    bool need_compaction() { return _need_compaction && !_compaction_task; }
+    bool need_compaction() const {
+        std::unique_lock wrlock(_meta_lock);
+        return need_compaction_unlock();
+    }
+
+    bool need_compaction_unlock() const {
+        return _compaction_context && !_compaction_task;
+    }
 
     // protected by _meta_lock
     void update_tablet_compaction_context();
@@ -328,10 +335,7 @@ private:
     std::unique_ptr<TabletUpdates> _updates;
 
     // compaction related
-    // std::unique_ptr<CompactionContext> _compaction_context;
-    std::atomic_bool _need_compaction = false;
-    double _compaction_score = 0.0;
-    int8_t _current_level = -1;
+    std::unique_ptr<CompactionContext> _compaction_context;
     std::shared_ptr<CompactionTask> _compaction_task;
 
     // if this tablet is broken, set to true. default is false

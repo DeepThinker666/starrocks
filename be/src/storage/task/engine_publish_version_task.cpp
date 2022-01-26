@@ -118,9 +118,6 @@ OLAPStatus EnginePublishVersionTask::finish() {
                     res = publish_status;
                     continue;
                 }
-                if (config::enable_new_compaction_framework && tablet->need_compaction()) {
-                    CompactionManager::instance()->update_candidate(tablet.get());
-                }
             }
             partition_related_tablet_infos.erase(tablet_info);
             VLOG(1) << "publish version successfully on tablet. tablet=" << tablet->full_name()

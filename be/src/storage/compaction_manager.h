@@ -39,6 +39,11 @@ public:
         return _data_dir_to_task_num_map[data_dir];
     }
 
+    uint16_t running_tasks_num_for_level(uint8_t level) {
+        std::lock_guard lg(_mutex);
+        return _level_to_task_num_map[level];
+    }
+
     uint64_t next_compaction_task_id() { return ++_next_task_id; }
 
     void print_log();
@@ -69,6 +74,7 @@ private:
     std::atomic<uint16_t> _running_tasks_num;
     std::unordered_set<CompactionTask*> _running_tasks;
     std::unordered_map<DataDir*, uint16_t> _data_dir_to_task_num_map;
+    std::unordered_map<uint8_t, uint16_t> _level_to_task_num_map;
     std::thread _log_thread;
     bool _log_thread_inited = false;
 

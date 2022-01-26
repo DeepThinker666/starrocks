@@ -68,14 +68,24 @@ bool CompactionManager::register_task(CompactionTask* compaction_task) {
         Thread::set_thread_name(_log_thread, "compaction_log");
         _log_thread_inited = true;
     }
-    if (_running_tasks.size() >= config::max_compaction_task_num) {
-        LOG(WARNING) << "register compaction task failed for running tasks reach limit:"
+    if (config::max_compaction_task_num >= 0 && _running_tasks.size() >= config::max_compaction_task_num) {
+        LOG(WARNING) << "register compaction task failed for running tasks reach max limit:"
                      << config::max_compaction_task_num;
+        return false;
+    }
+    if (compaction_task->compaction_level() == 0 && config::max_level_0_compaction_task >= 0 &&
+        _level_to_task_num_map[0] >= config::max_level_0_compaction_task) {
+        LOG(WARNING) << "register compaction task failed for level 0 limit:" << config::max_level_0_compaction_task;
+        return false;
+    } else if (compaction_task->compaction_level() == 1 && config::max_level_1_compaction_task >= 0 &&
+               _level_to_task_num_map[1] >= config::max_level_1_compaction_task) {
+        LOG(WARNING) << "register compaction task failed for level 1 limit:" << config::max_level_1_compaction_task;
         return false;
     }
     Tablet* tablet = compaction_task->tablet();
     DataDir* data_dir = tablet->data_dir();
-    if (_data_dir_to_task_num_map[data_dir] >= config::max_compaction_task_per_disk) {
+    if (config::max_compaction_task_per_disk >= 0 &&
+        _data_dir_to_task_num_map[data_dir] >= config::max_compaction_task_per_disk) {
         LOG(WARNING) << "register compaction task failed for disk's running tasks reach limit:"
                      << config::max_compaction_task_per_disk;
         return false;
@@ -87,12 +97,14 @@ bool CompactionManager::register_task(CompactionTask* compaction_task) {
                      << ", tablet:" << compaction_task->tablet()->tablet_id();
         return false;
     }
+    _level_to_task_num_map[compaction_task->compaction_level()]++;
     _data_dir_to_task_num_map[data_dir]++;
     _running_tasks_num++;
     LOG(INFO) << "registered compaction task:" << compaction_task->task_id()
               << ", tablet:" << compaction_task->tablet()->tablet_id()
               << ", data dir task num:" << _data_dir_to_task_num_map[data_dir] << ", data_dir:" << data_dir->path()
-              << ", running task:" << _running_tasks_num;
+              << ", running task:" << _running_tasks_num << ", compaction level:" << compaction_task->compaction_level()
+              << ", level num:" << _level_to_task_num_map[compaction_task->compaction_level()];
     return true;
 }
 
@@ -107,12 +119,15 @@ void CompactionManager::unregister_task(CompactionTask* compaction_task) {
     if (size > 0) {
         Tablet* tablet = compaction_task->tablet();
         DataDir* data_dir = tablet->data_dir();
+        _level_to_task_num_map[compaction_task->compaction_level()]--;
         _data_dir_to_task_num_map[data_dir]--;
         _running_tasks_num--;
         LOG(INFO) << "unregister compaction task:" << compaction_task->task_id()
                   << ", tablet:" << compaction_task->tablet()->tablet_id() << ", data dir:" << data_dir->path()
                   << ", data dir task num:" << _data_dir_to_task_num_map[data_dir]
-                  << ", running task num:" << _running_tasks_num;
+                  << ", running task num:" << _running_tasks_num
+                  << ", compaction level:" << compaction_task->compaction_level()
+                  << ", level num:" << _level_to_task_num_map[compaction_task->compaction_level()];
     }
 }
 

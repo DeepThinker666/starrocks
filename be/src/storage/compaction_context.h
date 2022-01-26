@@ -21,13 +21,19 @@ struct RowsetComparator {
         return left->start_version() < right->start_version() && left->end_version() < right->start_version();
     }
 };
-
 struct CompactionContext {
     // sort rowsets by version
     std::set<Rowset*, RowsetComparator> rowset_levels[LEVEL_NUMBER];
     double compaction_scores[LEVEL_NUMBER - 1];
     Tablet* tablet;
     int8_t current_level = -1;
+
+    double get_score() {
+        if (current_level < 0 || current_level > 1) {
+            return 0;
+        }
+        return compaction_scores[current_level];
+    }
 
     std::string to_string();
 };

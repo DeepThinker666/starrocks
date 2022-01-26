@@ -747,7 +747,7 @@ Status TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_
     // no concurrent access here
     if (config::enable_new_compaction_framework) {
         tablet->update_tablet_compaction_context();
-        if (tablet->need_compaction()) {
+        if (tablet->need_compaction_unlock()) {
             CompactionManager::instance()->update_candidate(tablet.get());
         }
     }

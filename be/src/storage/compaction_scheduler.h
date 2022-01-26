@@ -21,9 +21,7 @@ class CompactionTask;
 // maybe Scheduler should register to CompactionManager for concurrent scheduler
 class CompactionScheduler {
 public:
-    CompactionScheduler()
-            : _normal_compaction_pool("compact_normal", config::max_compaction_task_num, 1000),
-              _low_priority_compaction_pool("compact_low", config::max_compaction_task_num, 1000) {}
+    CompactionScheduler() : _compaction_pool("compact_pool", config::max_compaction_task_num, 1000) {}
     ~CompactionScheduler() = default;
 
     void schedule();
@@ -38,9 +36,7 @@ private:
     Tablet* try_get_next_tablet();
 
 private:
-    // 分开两个线程池，避免大compaction任务饿死小compaction任务
-    PriorityThreadPool _normal_compaction_pool;
-    PriorityThreadPool _low_priority_compaction_pool;
+    PriorityThreadPool _compaction_pool;
 
     std::mutex _mutex;
     std::condition_variable _cv;
