@@ -55,7 +55,6 @@ void CompactionTask::run() {
             TRACE("[Compaction] compaction task finished. and will do compaction again.");
             CompactionManager::instance()->update_candidate(_tablet);
         }
-        LOG(INFO) << _task_info.to_string();
         TRACE("[Compaction] $0", _task_info.to_string());
     });
 

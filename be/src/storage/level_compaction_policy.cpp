@@ -84,6 +84,7 @@ void LevelCompactionPolicy::_pick_level_0_rowsets(bool* has_delete_version, size
     }
     bool is_creation_time_ordered = _is_rowset_creation_time_ordered(_compaction_context->rowset_levels[0]);
     int index = 0;
+    LOG(INFO) << "level 0 rowset size:" << _compaction_context->rowset_levels[0].size();
     for (auto rowset : _compaction_context->rowset_levels[0]) {
         if (_compaction_context->tablet->version_for_delete_predicate(rowset->version())) {
             *has_delete_version = true;
@@ -106,10 +107,13 @@ void LevelCompactionPolicy::_pick_level_0_rowsets(bool* has_delete_version, size
         LOG(INFO) << "index:" << index << ", add rowset:" << rowset->version()
                   << ", is_creation_time_ordered:" << is_creation_time_ordered;
         rowsets->emplace_back(std::move(rowset->shared_from_this()));
+        *rowsets_compaction_score += rowset->rowset_meta()->get_compaction_score();
         if (*rowsets_compaction_score >= config::max_cumulative_compaction_num_singleton_deltas) {
+            LOG(INFO) << "rowsets_compaction_score:" << *rowsets_compaction_score << " is larger than config:"
+                      << config::max_cumulative_compaction_num_singleton_deltas
+                      << ", level 0 rowset size:" << _compaction_context->rowset_levels[0].size();
             break;
         }
-        *rowsets_compaction_score += rowset->rowset_meta()->get_compaction_score();
         ++index;
     }
 }
@@ -193,7 +197,6 @@ void LevelCompactionPolicy::_pick_level_1_rowsets(std::vector<RowsetSharedPtr>* 
 }
 
 std::shared_ptr<CompactionTask> LevelCompactionPolicy::_create_level_1_compaction() {
-    // TODO: 需要考虑加锁
     std::vector<RowsetSharedPtr> input_rowsets;
     _pick_level_1_rowsets(&input_rowsets);
     LOG(INFO) << "pick input rowsets size:" << input_rowsets.size();

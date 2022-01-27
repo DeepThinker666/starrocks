@@ -43,8 +43,10 @@ void CompactionScheduler::schedule() {
             std::shared_ptr<CompactionTask> compaction_task = selected->get_compaction(true);
             PriorityThreadPool::Task task;
             task.work_function = [compaction_task] { compaction_task->start(); };
-            LOG(INFO) << "input rows num:" << compaction_task->input_rows_num()
-                      << ", rowsets size:" << compaction_task->input_rowsets_size();
+            LOG(INFO) << "start to run compaction. input rows num:" << compaction_task->input_rows_num()
+                      << ", rowsets size:" << compaction_task->input_rowsets_size()
+                      << ", task_id:" << compaction_task->task_id()
+                      << ", tablet_id:" << compaction_task->tablet()->tablet_id();
             _compaction_pool.offer(task);
         }
     }
@@ -131,6 +133,14 @@ Tablet* CompactionScheduler::try_get_next_tablet() {
         // create a new compaction task
         bool need_reset_task = true;
         compaction_task = tablet->get_compaction(true);
+        DeferOp reset_op([&] {
+            if (need_reset_task) {
+                LOG(INFO) << "need_reset_task is true, reset compaction task. tablet:" << tablet->tablet_id();
+                tablet->reset_compaction();
+            } else {
+                LOG(INFO) << "need_reset_task is false, tablet:" << tablet->tablet_id();
+            }
+        });
         if (compaction_task) {
             // create new compaction task successfully
 
@@ -177,7 +187,9 @@ Tablet* CompactionScheduler::try_get_next_tablet() {
             // hard limit will be checked when CompactionManager::register()
             uint16_t num = CompactionManager::instance()->running_tasks_num_for_dir(data_dir);
             if (config::max_compaction_task_per_disk >= 0 && num >= config::max_compaction_task_per_disk) {
-                LOG(INFO) << "skip tablet:" << tablet->tablet_id() << " for limit of compaction task per disk";
+                LOG(INFO) << "skip tablet:" << tablet->tablet_id()
+                        << " for limit of compaction task per disk. disk path:" << data_dir->path()
+                        << ", running num:" << num;
                 continue;
             }
             // found a qualified tablet
@@ -187,9 +199,6 @@ Tablet* CompactionScheduler::try_get_next_tablet() {
             break;
         } else {
             LOG(INFO) << "skip tablet:" << tablet->tablet_id() << " for create compaction task failed.";
-        }
-        if (need_reset_task) {
-            tablet->reset_compaction();
         }
     }
     LOG(INFO) << "pick next candidates. tmp tablets size:" << tmp_tablets.size();
