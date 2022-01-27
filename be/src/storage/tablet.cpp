@@ -1193,10 +1193,12 @@ Version Tablet::max_version() const {
 
 void Tablet::update_tablet_compaction_context() {
     if (_updates || _state == TABLET_NOTREADY || !is_used() || !init_succeeded()) {
+        LOG(INFO) << "tablet state is not ok. tablet:" << tablet_id();
         _compaction_context.reset();
         return;
     }
     if (!_check_versions_completeness()) {
+        LOG(INFO) << "tablet versions is not complete. tablet:" << tablet_id();
         _compaction_context.reset();
         // when versions are not complete, just return
         return;
