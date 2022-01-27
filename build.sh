@@ -32,7 +32,7 @@
 ##############################################################
 
 set -eo pipefail
-BUILD_TYPE=DEBUG
+
 ROOT=`dirname "$0"`
 ROOT=`cd "$ROOT"; pwd`
 MACHINE_TYPE=$(uname -m)
