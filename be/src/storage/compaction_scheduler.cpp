@@ -57,7 +57,14 @@ void CompactionScheduler::schedule() {
                       << ", rowsets size:" << compaction_task->input_rowsets_size()
                       << ", task_id:" << compaction_task->task_id()
                       << ", tablet_id:" << compaction_task->tablet()->tablet_id();
-            _compaction_pool.offer(task);
+            bool ret = _compaction_pool.try_offer(task);
+            if (!ret) {
+                LOG(WARNING) << "submit compaction task to compaction pool failed."
+                             << ", pool queue size:" << _compaction_pool.get_queue_size()
+                             << ", queue capacity:" << _compaction_pool.get_queue_capacity();
+                selected->reset_compaction();
+                CompactionManager::instance()->update_candidate(selected);
+            }
         }
     }
 }
