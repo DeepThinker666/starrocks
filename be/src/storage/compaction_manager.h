@@ -17,17 +17,31 @@
 
 namespace starrocks {
 
+class CompactionScheduler;
+
 class CompactionManager {
 public:
     ~CompactionManager() = default;
 
     static CompactionManager* instance();
 
+    size_t candidates_size() {
+        std::lock_guard lg(_mutex);
+        return _candidate_tablets.size();
+    }
+
     void update_candidate(Tablet* tablet);
 
     void insert_candidates(const std::vector<Tablet*>& tablets);
 
     Tablet* pick_candidate();
+
+    void register_scheduler(CompactionScheduler* scheduler) {
+        std::lock_guard lg(_scheduler_mutex);
+        _schedulers.push_back(scheduler);
+    }
+
+    void notify_schedulers();
 
     bool register_task(CompactionTask* compaction_task);
 
@@ -56,8 +70,6 @@ private:
     CompactionManager& operator=(const CompactionManager& compaction_manager) = delete;
     CompactionManager& operator=(CompactionManager&& compaction_manager) = delete;
 
-    std::mutex _mutex;
-
     // Comparator should compare tablet by compaction score
     // When compaction score is equal, use tablet id(to be unique) instead
     struct TabletCompactionComparator {
@@ -68,6 +80,7 @@ private:
         }
     };
 
+    std::mutex _mutex;
     // protect by _mutex
     std::set<Tablet*, TabletCompactionComparator> _candidate_tablets;
 
@@ -79,6 +92,9 @@ private:
     std::thread _log_thread;
     bool _log_thread_inited = false;
     PriorityThreadPool _update_candidate_pool;
+
+    std::mutex _scheduler_mutex;
+    std::vector<CompactionScheduler*> _schedulers;
 
     static std::unique_ptr<CompactionManager> _instance;
 };

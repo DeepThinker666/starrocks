@@ -109,8 +109,8 @@ void LevelCompactionPolicy::_pick_level_0_rowsets(bool* has_delete_version, size
         rowsets->emplace_back(std::move(rowset->shared_from_this()));
         *rowsets_compaction_score += rowset->rowset_meta()->get_compaction_score();
         if (*rowsets_compaction_score >= config::max_cumulative_compaction_num_singleton_deltas) {
-            LOG(INFO) << "rowsets_compaction_score:" << *rowsets_compaction_score << " is larger than config:"
-                      << config::max_cumulative_compaction_num_singleton_deltas
+            LOG(INFO) << "rowsets_compaction_score:" << *rowsets_compaction_score
+                      << " is larger than config:" << config::max_cumulative_compaction_num_singleton_deltas
                       << ", level 0 rowset size:" << _compaction_context->rowset_levels[0].size();
             break;
         }

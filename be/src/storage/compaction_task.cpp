@@ -3,6 +3,7 @@
 
 #include "runtime/current_thread.h"
 #include "storage/compaction_manager.h"
+#include "storage/compaction_scheduler.h"
 #include "storage/storage_engine.h"
 #include "util/scoped_cleanup.h"
 #include "util/time.h"
@@ -20,9 +21,10 @@ void CompactionTask::run() {
     });
     ADOPT_TRACE(trace.get());
     TRACE("[Compaction]start to perform compaction. task_id:$0, tablet:$1, _algorithm::$2, _compaction_level:$3",
-          _task_info.task_id, _task_info.tablet_id, ToString(_task_info.algorithm), (int)_task_info.compaction_level);
+          _task_info.task_id, _task_info.tablet_id, algorithm_to_string(_task_info.algorithm),
+          (int)_task_info.compaction_level);
     LOG(INFO) << "start compaction. task_id:" << _task_info.task_id << ", tablet:" << _task_info.tablet_id
-              << ", _algorithm:" << ToString(_task_info.algorithm)
+              << ", _algorithm:" << algorithm_to_string(_task_info.algorithm)
               << ", _compaction_level:" << (int)_task_info.compaction_level;
     std::stringstream ss;
     ss << "output version:" << _task_info.output_version << ", input rowsets size:" << _input_rowsets.size()
@@ -55,6 +57,8 @@ void CompactionTask::run() {
             TRACE("[Compaction] compaction task finished. and will do compaction again.");
             CompactionManager::instance()->update_candidate(_tablet);
         }
+        // must be put after unregister_task
+        _scheduler->notify();
         TRACE("[Compaction] $0", _task_info.to_string());
     });
 

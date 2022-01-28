@@ -33,7 +33,7 @@ std::shared_ptr<CompactionTask> CompactionTaskFactory::create_compaction_task() 
     CompactionAlgorithm algorithm =
             CompactionUtils::choose_compaction_algorithm(num_columns, max_columns_per_group, segment_iterator_num);
     std::shared_ptr<CompactionTask> compaction_task;
-    LOG(INFO) << "choose algorithm:" << algorithm << ", for tablet:" << _tablet->tablet_id()
+    LOG(INFO) << "choose algorithm:" << algorithm_to_string(algorithm) << ", for tablet:" << _tablet->tablet_id()
               << ", segment_iterator_num:" << segment_iterator_num
               << ", max_columns_per_group:" << max_columns_per_group << ", num_columns:" << num_columns;
     if (algorithm == HORIZONTAL_COMPACTION) {
@@ -50,7 +50,7 @@ std::shared_ptr<CompactionTask> CompactionTaskFactory::create_compaction_task() 
         input_rowsets_size += rowset->data_disk_size();
         input_segments_num += rowset->num_segments();
     }
-    compaction_task->set_task_id(CompactionManager::instance()->next_compaction_task_id());
+    // compaction_task->set_task_id(CompactionManager::instance()->next_compaction_task_id());
     compaction_task->set_compaction_level(_compaction_level);
     compaction_task->set_input_rows_num(input_rows_num);
     compaction_task->set_input_rowsets(std::move(_input_rowsets));

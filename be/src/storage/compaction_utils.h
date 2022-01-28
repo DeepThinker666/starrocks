@@ -22,7 +22,7 @@ enum CompactionAlgorithm {
     VERTICAL_COMPACTION = 1
 };
 
-inline const char* ToString(CompactionAlgorithm v) {
+inline const char* algorithm_to_string(CompactionAlgorithm v) {
     switch (v) {
     case HORIZONTAL_COMPACTION:
         return "HORIZONTAL_COMPACTION";

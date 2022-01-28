@@ -15,12 +15,15 @@ using namespace std::chrono_literals;
 
 namespace starrocks {
 
+CompactionScheduler::CompactionScheduler() : _compaction_pool("compact_pool", config::max_compaction_task_num, 1000) {
+    CompactionManager::instance()->register_scheduler(this);
+}
+
 // compaction task执行结束之后，回调函数唤醒scheduler
 void CompactionScheduler::schedule() {
     LOG(INFO) << "start compaction scheduler";
     while (true) {
-        // check current running tasks
-        // check running tasks of each DataDir
+        ++_round;
         _wait_to_run();
         // 如果空转，怎么办？找不到能够compaction的任务怎么？
         // 如果candidat为空怎么办？如果candidate中没有满足条件的，比如所有的candidate对应的datadir都有最大的running
@@ -35,12 +38,19 @@ void CompactionScheduler::schedule() {
             // 如果采用唤醒机制，需要在比较多的地方掉用notify
             // 暂时先sleep
             // 可以改成notify的机制，最长等待10s，避免bug，导致无法调度compaction
-            std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+            // std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+            LOG(INFO) << "can not find a qualified tablet. start to wait";
+            {
+                std::unique_lock<std::mutex> lk(_mutex);
+                _cv.wait_for(lk, 10000ms);
+            }
+            LOG(INFO) << "finish wait. scheduler next round. round:" << _round;
         } else {
-            // 考虑并发
             LOG(INFO) << "selected tablet:" << selected->tablet_id()
-                      << ", compaction score:" << selected->compaction_score();
+                      << ", compaction score:" << selected->compaction_score() << " for round:" << _round;
             std::shared_ptr<CompactionTask> compaction_task = selected->get_compaction(true);
+            compaction_task->set_compaction_scheduler(this);
+            compaction_task->set_task_id(CompactionManager::instance()->next_compaction_task_id());
             PriorityThreadPool::Task task;
             task.work_function = [compaction_task] { compaction_task->start(); };
             LOG(INFO) << "start to run compaction. input rows num:" << compaction_task->input_rows_num()
@@ -52,34 +62,40 @@ void CompactionScheduler::schedule() {
     }
 }
 
+void CompactionScheduler::notify() {
+    std::unique_lock<std::mutex> lk(_mutex);
+    _cv.notify_one();
+}
+
 bool CompactionScheduler::_can_schedule_next() {
     int32_t max_task_num = std::min(
             config::max_compaction_task_num,
             static_cast<int32_t>(StorageEngine::instance()->get_store_num() * config::max_compaction_task_per_disk));
-    return config::enable_compaction && CompactionManager::instance()->running_tasks_num() < max_task_num;
+    return config::enable_compaction && CompactionManager::instance()->running_tasks_num() < max_task_num &&
+           CompactionManager::instance()->candidates_size() > 0;
 }
 
 void CompactionScheduler::_wait_to_run() {
     std::unique_lock<std::mutex> lk(_mutex);
-    int round = 0;
+    int wait_round = 0;
     // check _can_schedule_next every one second to avoid deadlock and support modifying config online
-    while (!_cv.wait_for(lk, 1000ms, [this] { return _can_schedule_next(); })) {
+    while (!_cv.wait_for(lk, 5000ms, [this] { return _can_schedule_next(); })) {
         // TODO: remove this log
-        LOG(INFO) << "compaction scheduler wait to run, round:" << round++;
+        LOG(INFO) << "compaction scheduler wait to run, wait_round:" << wait_round++;
     }
 }
 
 Tablet* CompactionScheduler::try_get_next_tablet() {
-    LOG(INFO) << "try to get next qualified tablet.";
-    if (!_can_schedule_next()) {
-        LOG(INFO) << "_can_schedule_next is false. skip";
-        return nullptr;
-    }
+    LOG(INFO) << "try to get next qualified tablet for round:" << _round;
     // tmp_tablets save the tmp picked candidates tablets
     std::vector<Tablet*> tmp_tablets;
     Tablet* tablet = nullptr;
     int64_t now_ms = UnixMillis();
     while (true) {
+        if (!_can_schedule_next()) {
+            LOG(INFO) << "_can_schedule_next is false. skip";
+            break;
+        }
         tablet = CompactionManager::instance()->pick_candidate();
         if (!tablet) {
             // means there no candidate tablet, break
@@ -131,19 +147,19 @@ Tablet* CompactionScheduler::try_get_next_tablet() {
         }
 
         // create a new compaction task
-        bool need_reset_task = true;
         compaction_task = tablet->get_compaction(true);
-        DeferOp reset_op([&] {
-            if (need_reset_task) {
-                LOG(INFO) << "need_reset_task is true, reset compaction task. tablet:" << tablet->tablet_id();
-                tablet->reset_compaction();
-            } else {
-                LOG(INFO) << "need_reset_task is false, tablet:" << tablet->tablet_id();
-            }
-        });
+
         if (compaction_task) {
             // create new compaction task successfully
-
+            bool need_reset_task = true;
+            DeferOp reset_op([&] {
+                if (need_reset_task) {
+                    LOG(INFO) << "need_reset_task is true, reset compaction task. tablet:" << tablet->tablet_id();
+                    tablet->reset_compaction();
+                } else {
+                    LOG(INFO) << "need_reset_task is false, tablet:" << tablet->tablet_id();
+                }
+            });
             // to compatible with old compaction framework
             // TODO: can be optimized to use just one lock
             int64_t last_failure_ms = 0;
@@ -188,8 +204,8 @@ Tablet* CompactionScheduler::try_get_next_tablet() {
             uint16_t num = CompactionManager::instance()->running_tasks_num_for_dir(data_dir);
             if (config::max_compaction_task_per_disk >= 0 && num >= config::max_compaction_task_per_disk) {
                 LOG(INFO) << "skip tablet:" << tablet->tablet_id()
-                        << " for limit of compaction task per disk. disk path:" << data_dir->path()
-                        << ", running num:" << num;
+                          << " for limit of compaction task per disk. disk path:" << data_dir->path()
+                          << ", running num:" << num;
                 continue;
             }
             // found a qualified tablet
@@ -199,6 +215,7 @@ Tablet* CompactionScheduler::try_get_next_tablet() {
             break;
         } else {
             LOG(INFO) << "skip tablet:" << tablet->tablet_id() << " for create compaction task failed.";
+            tablet = nullptr;
         }
     }
     LOG(INFO) << "pick next candidates. tmp tablets size:" << tmp_tablets.size();

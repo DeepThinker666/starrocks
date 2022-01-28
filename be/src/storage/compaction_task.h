@@ -16,6 +16,8 @@
 
 namespace starrocks {
 
+class CompactionScheduler;
+
 struct CompactionTaskInfo {
     CompactionTaskInfo(CompactionAlgorithm algo)
             : algorithm(algo),
@@ -78,7 +80,7 @@ struct CompactionTaskInfo {
         ss << "[CompactionTaskInfo]";
         ss << " task_id:" << task_id;
         ss << ", tablet_id:" << tablet_id;
-        ss << ", algorithm:" << ToString(algorithm);
+        ss << ", algorithm:" << algorithm_to_string(algorithm);
         ss << ", compaction_level:" << (int32_t)compaction_level;
         ss << ", output_version:" << output_version;
         ss << ", start_time:" << ToStringFromUnixMillis(start_time);
@@ -180,6 +182,8 @@ public:
         return _task_info.to_string();
     }
 
+    void set_compaction_scheduler(CompactionScheduler* scheduler) { _scheduler = scheduler; }
+
 protected:
     virtual Status run_impl() = 0;
 
@@ -235,6 +239,7 @@ protected:
     std::unique_lock<std::mutex> _compaction_lock;
     MonotonicStopWatch _watch;
     MemTracker* _mem_tracker;
+    CompactionScheduler* _scheduler;
 };
 
 } // namespace starrocks

@@ -253,9 +253,7 @@ public:
         return need_compaction_unlock();
     }
 
-    bool need_compaction_unlock() const {
-        return _compaction_context && !_compaction_task;
-    }
+    bool need_compaction_unlock() const { return _compaction_context && !_compaction_task; }
 
     // protected by _meta_lock
     void update_tablet_compaction_context();

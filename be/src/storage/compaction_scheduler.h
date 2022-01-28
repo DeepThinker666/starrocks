@@ -21,10 +21,12 @@ class CompactionTask;
 // maybe Scheduler should register to CompactionManager for concurrent scheduler
 class CompactionScheduler {
 public:
-    CompactionScheduler() : _compaction_pool("compact_pool", config::max_compaction_task_num, 1000) {}
+    CompactionScheduler();
     ~CompactionScheduler() = default;
 
     void schedule();
+
+    void notify();
 
 private:
     // wait until current running tasks are below max_concurrent_num
@@ -40,6 +42,7 @@ private:
 
     std::mutex _mutex;
     std::condition_variable _cv;
+    uint64_t _round;
 };
 
 } // namespace starrocks

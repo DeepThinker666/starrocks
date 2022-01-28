@@ -2,6 +2,7 @@
 
 #include "storage/compaction_manager.h"
 
+#include "storage/compaction_scheduler.h"
 #include "storage/data_dir.h"
 #include "util/thread.h"
 namespace starrocks {
@@ -29,10 +30,18 @@ void CompactionManager::print_log() {
 void CompactionManager::update_candidate(Tablet* tablet) {
     PriorityThreadPool::Task task;
     task.work_function = [tablet, this] {
-        std::lock_guard lg(_mutex);
-        _candidate_tablets.erase(tablet);
-        _candidate_tablets.insert(tablet);
-        LOG(INFO) << "current _candidate_tablets size:" << _candidate_tablets.size();
+        bool should_notify = false;
+        {
+            std::lock_guard lg(_mutex);
+            size_t num = _candidate_tablets.erase(tablet);
+            should_notify = num == 0;
+            _candidate_tablets.insert(tablet);
+            LOG(INFO) << "current _candidate_tablets size:" << _candidate_tablets.size()
+                      << ", should_notify:" << should_notify;
+        }
+        if (should_notify) {
+            notify_schedulers();
+        }
     };
     bool ret = _update_candidate_pool.try_offer(task);
     if (!ret) {
@@ -110,7 +119,8 @@ bool CompactionManager::register_task(CompactionTask* compaction_task) {
     LOG(INFO) << "registered compaction task:" << compaction_task->task_id()
               << ", tablet:" << compaction_task->tablet()->tablet_id()
               << ", data dir task num:" << _data_dir_to_task_num_map[data_dir] << ", data_dir:" << data_dir->path()
-              << ", running task:" << _running_tasks_num << ", compaction level:" << (int)compaction_task->compaction_level()
+              << ", running task:" << _running_tasks_num
+              << ", compaction level:" << (int)compaction_task->compaction_level()
               << ", level num:" << _level_to_task_num_map[compaction_task->compaction_level()];
     return true;
 }
@@ -135,6 +145,14 @@ void CompactionManager::unregister_task(CompactionTask* compaction_task) {
                   << ", running task num:" << _running_tasks_num
                   << ", compaction level:" << (int)compaction_task->compaction_level()
                   << ", level num:" << _level_to_task_num_map[compaction_task->compaction_level()];
+    }
+}
+
+void CompactionManager::notify_schedulers() {
+    LOG(INFO) << "CompactionManager notify schedulers";
+    std::lock_guard lg(_scheduler_mutex);
+    for (auto& scheduler : _schedulers) {
+        scheduler->notify();
     }
 }
 
