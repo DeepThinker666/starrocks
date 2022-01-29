@@ -16,7 +16,7 @@ CompactionManager* CompactionManager::instance() {
 void CompactionManager::print_log() {
     while (true) {
         {
-            std::lock_guard lg(_mutex);
+            std::lock_guard lg(_tasks_mutex);
             LOG(INFO) << "there are " << _running_tasks.size() << " compaction tasks";
             for (auto& compaction_task : _running_tasks) {
                 LOG(INFO) << compaction_task->get_task_info();
@@ -27,21 +27,10 @@ void CompactionManager::print_log() {
     }
 }
 
-void CompactionManager::update_candidate(Tablet* tablet) {
+void CompactionManager::update_candidate_async(Tablet* tablet) {
     PriorityThreadPool::Task task;
     task.work_function = [tablet, this] {
-        bool should_notify = false;
-        {
-            std::lock_guard lg(_mutex);
-            size_t num = _candidate_tablets.erase(tablet);
-            should_notify = num == 0;
-            _candidate_tablets.insert(tablet);
-            LOG(INFO) << "current _candidate_tablets size:" << _candidate_tablets.size()
-                      << ", should_notify:" << should_notify;
-        }
-        if (should_notify) {
-            _notify_schedulers();
-        }
+        update_candidate(tablet);
     };
     bool ret = _update_candidate_pool.try_offer(task);
     if (!ret) {
@@ -51,13 +40,28 @@ void CompactionManager::update_candidate(Tablet* tablet) {
     }
 }
 
+void CompactionManager::update_candidate(Tablet* tablet) {
+    bool should_notify = false;
+    {
+        std::lock_guard lg(_candidates_mutex);
+        size_t num = _candidate_tablets.erase(tablet);
+        should_notify = num == 0;
+        _candidate_tablets.insert(tablet);
+        LOG(INFO) << "current _candidate_tablets size:" << _candidate_tablets.size()
+                  << ", should_notify:" << should_notify;
+    }
+    if (should_notify) {
+        _notify_schedulers();
+    }
+}
+
 void CompactionManager::insert_candidates(const std::vector<Tablet*>& tablets) {
-    std::lock_guard lg(_mutex);
+    std::lock_guard lg(_candidates_mutex);
     _candidate_tablets.insert(tablets.begin(), tablets.end());
 }
 
 Tablet* CompactionManager::pick_candidate() {
-    std::lock_guard lg(_mutex);
+    std::lock_guard lg(_candidates_mutex);
     size_t original_num = _candidate_tablets.size();
     if (_candidate_tablets.empty()) {
         // return nullptr if _candidate_tablets is empty
@@ -77,7 +81,7 @@ bool CompactionManager::register_task(CompactionTask* compaction_task) {
     }
     LOG(INFO) << "register compaction task:" << compaction_task->task_id()
               << ", tablet:" << compaction_task->tablet()->tablet_id();
-    std::lock_guard lg(_mutex);
+    std::lock_guard lg(_tasks_mutex);
     if (!_log_thread_inited) {
         _log_thread = std::thread([this]() {
             LOG(INFO) << "start compaction manager log printer";
@@ -133,7 +137,7 @@ void CompactionManager::unregister_task(CompactionTask* compaction_task) {
     }
     LOG(INFO) << "unregister compaction task:" << compaction_task->task_id()
               << ", tablet:" << compaction_task->tablet()->tablet_id();
-    std::lock_guard lg(_mutex);
+    std::lock_guard lg(_tasks_mutex);
     auto size = _running_tasks.erase(compaction_task);
     if (size > 0) {
         Tablet* tablet = compaction_task->tablet();

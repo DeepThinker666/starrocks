@@ -194,7 +194,7 @@ Status Tablet::revise_tablet_meta(MemTracker* mem_tracker, const std::vector<Row
     if (config::enable_new_compaction_framework) {
         update_tablet_compaction_context();
         if (need_compaction_unlock()) {
-            CompactionManager::instance()->update_candidate(this);
+            CompactionManager::instance()->update_candidate_async(this);
         }
     }
 
@@ -276,7 +276,7 @@ void Tablet::modify_rowsets(const std::vector<RowsetSharedPtr>& to_add, const st
     if (config::enable_new_compaction_framework) {
         update_tablet_compaction_context();
         if (need_compaction_unlock()) {
-            CompactionManager::instance()->update_candidate(this);
+            CompactionManager::instance()->update_candidate_async(this);
         }
     }
 
@@ -358,7 +358,7 @@ Status Tablet::add_inc_rowset(const RowsetSharedPtr& rowset) {
     if (config::enable_new_compaction_framework) {
         update_tablet_compaction_context();
         if (need_compaction_unlock()) {
-            CompactionManager::instance()->update_candidate(this);
+            CompactionManager::instance()->update_candidate_async(this);
         }
     }
 

@@ -70,6 +70,9 @@ public:
 
     Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir);
 
+    // for ut
+    Tablet() = default;
+
     ~Tablet() override;
 
     Status init();
@@ -251,6 +254,11 @@ public:
     bool need_compaction() const {
         std::unique_lock wrlock(_meta_lock);
         return need_compaction_unlock();
+    }
+
+    // for ut
+    void set_compaction_context(std::unique_ptr<CompactionContext>& compaction_context) {
+        _compaction_context = std::move(compaction_context);
     }
 
     bool need_compaction_unlock() const { return _compaction_context && !_compaction_task; }
