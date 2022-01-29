@@ -40,12 +40,14 @@ void CompactionManager::update_candidate(Tablet* tablet) {
                       << ", should_notify:" << should_notify;
         }
         if (should_notify) {
-            notify_schedulers();
+            _notify_schedulers();
         }
     };
     bool ret = _update_candidate_pool.try_offer(task);
     if (!ret) {
-        LOG(WARNING) << "update candidate failed for queue is full. the reason maybe dead lock";
+        LOG(WARNING) << "update candidate failed for queue is full. capacity:"
+                     << _update_candidate_pool.get_queue_capacity()
+                     << ", queue size:" << _update_candidate_pool.get_queue_size();
     }
 }
 
@@ -148,7 +150,7 @@ void CompactionManager::unregister_task(CompactionTask* compaction_task) {
     }
 }
 
-void CompactionManager::notify_schedulers() {
+void CompactionManager::_notify_schedulers() {
     LOG(INFO) << "CompactionManager notify schedulers";
     std::lock_guard lg(_scheduler_mutex);
     for (auto& scheduler : _schedulers) {

@@ -41,8 +41,6 @@ public:
         _schedulers.push_back(scheduler);
     }
 
-    void notify_schedulers();
-
     bool register_task(CompactionTask* compaction_task);
 
     void unregister_task(CompactionTask* compaction_task);
@@ -69,6 +67,8 @@ private:
     CompactionManager(CompactionManager&& compaction_manager) = delete;
     CompactionManager& operator=(const CompactionManager& compaction_manager) = delete;
     CompactionManager& operator=(CompactionManager&& compaction_manager) = delete;
+
+    void _notify_schedulers();
 
     // Comparator should compare tablet by compaction score
     // When compaction score is equal, use tablet id(to be unique) instead
