@@ -98,6 +98,7 @@ Tablet* CompactionScheduler::try_get_next_tablet() {
     std::vector<Tablet*> tmp_tablets;
     Tablet* tablet = nullptr;
     int64_t now_ms = UnixMillis();
+    bool found = false;
     while (true) {
         if (!_can_schedule_next()) {
             LOG(INFO) << "_can_schedule_next is false. skip";
@@ -219,21 +220,21 @@ Tablet* CompactionScheduler::try_get_next_tablet() {
             // qualified tablet will be removed from candidates
             need_reset_task = false;
             tmp_tablets.pop_back();
+            found = true;
             break;
         } else {
             LOG(INFO) << "skip tablet:" << tablet->tablet_id() << " for create compaction task failed.";
-            tablet = nullptr;
         }
     }
     LOG(INFO) << "pick next candidates. tmp tablets size:" << tmp_tablets.size();
     CompactionManager::instance()->insert_candidates(tmp_tablets);
-    if (tablet) {
+    if (found) {
         LOG(INFO) << "get a qualified tablet:" << tablet->tablet_id();
+        return tablet;
     } else {
         LOG(INFO) << "no qualified tablet.";
+        return nullptr;
     }
-
-    return tablet;
 }
 
 } // namespace starrocks
