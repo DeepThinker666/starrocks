@@ -82,8 +82,8 @@ private:
 
     void _notify_schedulers();
 
-    // Comparator should compare tablet by compaction score
-    // When compaction score is equal, use tablet id(to be unique) instead
+    // Comparator should compare tablet by compaction score in descending order
+    // When compaction scores are equal, use tablet id(to be unique) instead(ascending)
     struct TabletCompactionComparator {
         bool operator()(const Tablet* left, const Tablet* right) const {
             int32_t left_score = static_cast<int32_t>(left->compaction_score() * 100);

@@ -261,7 +261,7 @@ double LevelCompactionPolicy::_get_level_1_compaction_score() {
     double time_delta = 0;
     double size_delta = 0;
     if (_compaction_context->rowset_levels[2].size() > 0) {
-        DCHECK(_compaction_context->rowset_levels[2].size() == 1);
+        DCHECK(_compaction_context->rowset_levels[2].size() == 1) << "invalide rowset size. " << _compaction_context->rowset_levels[2].size();
         Rowset* base_rowset = *_compaction_context->rowset_levels[2].begin();
         if (base_rowset->data_disk_size() > 0) {
             double size_ratio = level_1_rowsets_size / base_rowset->data_disk_size();
@@ -277,7 +277,7 @@ double LevelCompactionPolicy::_get_level_1_compaction_score() {
              (_compaction_context->rowset_levels[1].size() == 1 && !base_rowset->empty()))) {
             // the tablet is with rowsets: [0-x], [x+1-y], and [0-x] is empty.
             // in this situation, no need to do base compaction.
-            LOG(INFO) << "satisfy the base compaction policy. tablet=" << _compaction_context->tablet->full_name()
+            LOG(INFO) << "satisfy the base compaction policy. tablet=" << _compaction_context->tablet->tablet_id()
                       << ", interval_since_last_base_compaction=" << interval_since_last_base_compaction
                       << ", interval_threshold=" << config::base_compaction_interval_seconds_since_last_operation
                       << ", level 1 rowsets size:" << _compaction_context->rowset_levels[1].size()
@@ -285,7 +285,6 @@ double LevelCompactionPolicy::_get_level_1_compaction_score() {
             time_delta = 1.0;
         }
     }
-
     double score = std::max(num_score, size_score + size_delta) + time_delta;
     LOG(INFO) << "tablet:" << _compaction_context->tablet->tablet_id() << ", compaction score:" << score
               << ", size_score:" << size_score << ", num_score:" << num_score << ", time_delta:" << time_delta
