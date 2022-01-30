@@ -106,7 +106,7 @@ struct CompactionTaskInfo {
 
 class CompactionTask : public BackgroudTask {
 public:
-    CompactionTask(CompactionAlgorithm algorithm) : _task_info(algorithm), _runtime_profile("compaction") {
+    CompactionTask(CompactionAlgorithm algorithm) : _task_info(algorithm), _runtime_profile("compaction"), _mem_tracker(nullptr) {
         _watch.start();
     }
     virtual ~CompactionTask() {

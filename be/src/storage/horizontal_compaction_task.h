@@ -23,12 +23,6 @@ public:
     ~HorizontalCompactionTask() = default;
     Status run_impl();
 
-    /*
-    void run() override;
-
-    bool should_stop();
-    */
-
 private:
     Status _horizontal_compact_data(Statistics* statistics);
     StatusOr<size_t> _compact_data(int32_t chunk_size, vectorized::TabletReader& reader,

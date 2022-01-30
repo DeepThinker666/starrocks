@@ -47,7 +47,12 @@ public:
 
     void unregister_task(CompactionTask* compaction_task);
 
-    uint16_t running_tasks_num() { return _running_tasks_num; }
+    void clear_tasks();
+
+    uint16_t running_tasks_num() {
+        std::lock_guard lg(_tasks_mutex);
+        return _running_tasks_num;
+    }
 
     uint16_t running_tasks_num_for_dir(DataDir* data_dir) {
         std::lock_guard lg(_tasks_mutex);
@@ -63,8 +68,13 @@ public:
 
     void print_log();
 
+    void stop_log() {
+        _stop_log = true;
+        _log_thread.join();
+    }
+
 private:
-    CompactionManager() : _update_candidate_pool("up_candidates", 1, 100000) {}
+    CompactionManager() : _next_task_id(0), _running_tasks_num(0), _update_candidate_pool("up_candidates", 1, 100000) {}
     CompactionManager(const CompactionManager& compaction_manager) = delete;
     CompactionManager(CompactionManager&& compaction_manager) = delete;
     CompactionManager& operator=(const CompactionManager& compaction_manager) = delete;
@@ -94,6 +104,7 @@ private:
     std::unordered_map<uint8_t, uint16_t> _level_to_task_num_map;
     std::thread _log_thread;
     bool _log_thread_inited = false;
+    bool _stop_log = false;
     PriorityThreadPool _update_candidate_pool;
 
     std::mutex _scheduler_mutex;

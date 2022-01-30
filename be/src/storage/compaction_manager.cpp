@@ -17,6 +17,9 @@ void CompactionManager::print_log() {
     while (true) {
         {
             std::lock_guard lg(_tasks_mutex);
+            if (_stop_log) {
+                break;
+            }
             LOG(INFO) << "there are " << _running_tasks.size() << " compaction tasks";
             for (auto& compaction_task : _running_tasks) {
                 LOG(INFO) << compaction_task->get_task_info();
@@ -152,6 +155,14 @@ void CompactionManager::unregister_task(CompactionTask* compaction_task) {
                   << ", compaction level:" << (int)compaction_task->compaction_level()
                   << ", level num:" << _level_to_task_num_map[compaction_task->compaction_level()];
     }
+}
+
+void CompactionManager::clear_tasks() {
+    std::lock_guard lg(_tasks_mutex);
+    _running_tasks.clear();
+    _running_tasks_num = 0;
+    _data_dir_to_task_num_map.clear();
+    _level_to_task_num_map.clear();
 }
 
 void CompactionManager::_notify_schedulers() {
